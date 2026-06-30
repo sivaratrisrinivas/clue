@@ -11,6 +11,10 @@ create table if not exists pins (
   text text not null,
   x double precision not null,
   y double precision not null,
+  memory_status text not null default 'ready_for_connection' check (
+    memory_status in ('remembering', 'ready_for_connection', 'memory_failed')
+  ),
+  memory_error text,
   event_time timestamptz,
   deleted_at timestamptz,
   created_at timestamptz not null default now(),

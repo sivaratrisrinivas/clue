@@ -164,6 +164,122 @@ h1 {
   content: "";
 }
 
+.pin-composer {
+  position: absolute;
+  z-index: 2;
+  right: clamp(22px, 4vw, 56px);
+  bottom: clamp(22px, 4vw, 54px);
+  display: grid;
+  width: min(360px, calc(100% - 44px));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(43, 39, 34, 0.18);
+  border-radius: 6px;
+  background: rgba(248, 246, 239, 0.9);
+  box-shadow:
+    0 16px 28px rgba(28, 25, 21, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.pin-composer textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid rgba(53, 48, 42, 0.22);
+  border-radius: 4px;
+  padding: 10px 11px;
+  background: #fffdf7;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.35;
+}
+
+.pin-composer button {
+  justify-self: end;
+  min-height: 36px;
+  border: 1px solid rgba(96, 41, 38, 0.28);
+  border-radius: 4px;
+  padding: 0 16px;
+  background: #a94f48;
+  color: #fffaf4;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 640;
+}
+
+.pin-composer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.pin-list {
+  position: absolute;
+  inset: 42px 0 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pin {
+  position: absolute;
+  width: min(220px, calc(100vw - 44px));
+  min-height: 132px;
+  padding: 24px 18px 14px;
+  border: 1px solid rgba(88, 75, 50, 0.18);
+  border-radius: 3px;
+  background: #fff4b8;
+  box-shadow:
+    0 12px 22px rgba(38, 31, 20, 0.18),
+    inset 0 -18px 28px rgba(145, 106, 35, 0.08);
+}
+
+.pin::before {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #b43f3a;
+  box-shadow: 0 2px 4px rgba(45, 21, 17, 0.34);
+  content: "";
+}
+
+.pin p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: #2e2a23;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
+  line-height: 1.32;
+}
+
+.pin span {
+  display: inline-flex;
+  margin-top: 14px;
+  color: #665934;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.pin button {
+  display: block;
+  min-height: 30px;
+  margin-top: 10px;
+  border: 1px solid rgba(72, 57, 26, 0.24);
+  border-radius: 4px;
+  padding: 0 10px;
+  background: rgba(255, 253, 247, 0.76);
+  color: #4d4020;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 680;
+}
+
 .empty-board-note {
   position: absolute;
   z-index: 1;
@@ -251,5 +367,15 @@ h1 {
 
   .empty-board-note {
     top: 58%;
+  }
+
+  .pin-composer {
+    right: 18px;
+    bottom: 18px;
+  }
+
+  .pin {
+    left: 22px !important;
+    width: calc(100% - 44px);
   }
 }
