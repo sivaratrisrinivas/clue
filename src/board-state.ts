@@ -17,6 +17,13 @@ export type Pin = {
 };
 
 export type StringKind = "discovered" | "manual";
+export type StringSource = "cognee" | "manual";
+export type StringStroke = "red_solid" | "blue_dashed";
+export type ClueType =
+  | "shared_entity"
+  | "temporal_proximity"
+  | "semantic_relation"
+  | "manual_connection";
 
 export type BoardString = {
   id: string;
@@ -24,12 +31,23 @@ export type BoardString = {
   fromPinId: string;
   toPinId: string;
   kind: StringKind;
-  clueType:
-    | "shared_entity"
-    | "temporal_proximity"
-    | "semantic_relation"
-    | "manual_connection";
+  source: StringSource;
+  clueType: ClueType;
+  confidence: number;
+  stroke: StringStroke;
   explanation: string;
+  recalledMemory: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type DiscoveredStringInput = {
+  fromPinId: string;
+  toPinId: string;
+  clueType: Exclude<ClueType, "manual_connection">;
+  confidence: number;
+  explanation: string;
+  recalledMemory?: string | null;
 };
 
 export type MysteryBoard = {
@@ -50,6 +68,7 @@ export type BoardEvent = {
 export interface BoardStateStore {
   getCanonicalMysteryBoard(): Promise<MysteryBoard>;
   addTextPin(text: string): Promise<Pin>;
+  addDiscoveredString(input: DiscoveredStringInput): Promise<BoardString>;
   markPinReadyForConnection(pinId: string): Promise<Pin>;
   markPinMemoryFailed(pinId: string, message: string): Promise<Pin>;
 }
@@ -85,6 +104,20 @@ export function createInMemoryBoardStateStore(
       board.pins.push(pin);
       board.events.push(createBoardEvent("pin.created", { pinId: pin.id }));
       return clonePin(pin);
+    },
+    async addDiscoveredString(input) {
+      assertStringPinsExist(board, input.fromPinId, input.toPinId);
+      const string = createDiscoveredString(input);
+      board.strings.push(string);
+      board.events.push(
+        createBoardEvent("string.discovered", {
+          stringId: string.id,
+          fromPinId: string.fromPinId,
+          toPinId: string.toPinId,
+          clueType: string.clueType,
+        }),
+      );
+      return cloneString(string);
     },
     async markPinReadyForConnection(pinId) {
       const pin = findPin(board, pinId);
@@ -125,7 +158,8 @@ export function createNeonBoardStateStore(executor: QueryExecutor): BoardStateSt
       );
       const strings = await queryRows<StringRow>(
         executor,
-        `select id, mystery_id, from_pin_id, to_pin_id, kind, clue_type, explanation
+        `select id, mystery_id, from_pin_id, to_pin_id, kind, source, clue_type,
+           confidence, stroke, explanation, recalled_memory, created_at, updated_at
          from strings
          where mystery_id = $1
          order by created_at asc`,
@@ -170,6 +204,52 @@ export function createNeonBoardStateStore(executor: QueryExecutor): BoardStateSt
       await insertEvent(executor, "pin.created", { pinId: pin.id });
 
       return pin;
+    },
+    async addDiscoveredString(input) {
+      await ensureCanonicalMystery(executor);
+
+      const string = createDiscoveredString(input);
+      const [savedString] = await queryRows<StringRow>(
+        executor,
+        `insert into strings (
+           id,
+           mystery_id,
+           from_pin_id,
+           to_pin_id,
+           kind,
+           source,
+           clue_type,
+           confidence,
+           stroke,
+           explanation,
+           recalled_memory
+         )
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         returning id, mystery_id, from_pin_id, to_pin_id, kind, source, clue_type,
+           confidence, stroke, explanation, recalled_memory, created_at, updated_at`,
+        [
+          string.id,
+          string.mysteryId,
+          string.fromPinId,
+          string.toPinId,
+          string.kind,
+          string.source,
+          string.clueType,
+          string.confidence,
+          string.stroke,
+          string.explanation,
+          string.recalledMemory,
+        ],
+      );
+      const mappedString = mapRequiredString(savedString, string.id);
+      await insertEvent(executor, "string.discovered", {
+        stringId: mappedString.id,
+        fromPinId: mappedString.fromPinId,
+        toPinId: mappedString.toPinId,
+        clueType: mappedString.clueType,
+      });
+
+      return mappedString;
     },
     async markPinReadyForConnection(pinId) {
       const [pin] = await queryRows<PinRow>(
@@ -237,12 +317,20 @@ function cloneBoard(board: MysteryBoard): MysteryBoard {
   return {
     mystery: { ...board.mystery },
     pins: board.pins.map(clonePin),
-    strings: board.strings.map((string) => ({ ...string })),
+    strings: board.strings.map(cloneString),
     events: board.events.map((event) => ({
       ...event,
       payload: { ...event.payload },
       createdAt: new Date(event.createdAt),
     })),
+  };
+}
+
+function cloneString(string: BoardString): BoardString {
+  return {
+    ...string,
+    createdAt: new Date(string.createdAt),
+    updatedAt: new Date(string.updatedAt),
   };
 }
 
@@ -263,6 +351,26 @@ function createRememberingPin(text: string): Pin {
     memoryStatus: "remembering",
     memoryError: null,
     deletedAt: null,
+  };
+}
+
+function createDiscoveredString(input: DiscoveredStringInput): BoardString {
+  const now = new Date();
+
+  return {
+    id: crypto.randomUUID(),
+    mysteryId: canonicalMystery.id,
+    fromPinId: input.fromPinId,
+    toPinId: input.toPinId,
+    kind: "discovered",
+    source: "cognee",
+    clueType: input.clueType,
+    confidence: input.confidence,
+    stroke: "red_solid",
+    explanation: input.explanation,
+    recalledMemory: input.recalledMemory ?? null,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
@@ -288,6 +396,15 @@ function findPin(board: MysteryBoard, pinId: string): Pin {
   return pin;
 }
 
+function assertStringPinsExist(
+  board: MysteryBoard,
+  fromPinId: string,
+  toPinId: string,
+): void {
+  findPin(board, fromPinId);
+  findPin(board, toPinId);
+}
+
 type MysteryRow = {
   id: string;
   title: string;
@@ -310,8 +427,14 @@ type StringRow = {
   from_pin_id: string;
   to_pin_id: string;
   kind: StringKind;
-  clue_type: BoardString["clueType"];
+  source: StringSource;
+  clue_type: ClueType;
+  confidence: number | string;
+  stroke: StringStroke;
   explanation: string;
+  recalled_memory: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
 };
 
 type EventRow = {
@@ -343,6 +466,17 @@ function mapRequiredPin(row: PinRow | undefined, pinId: string): Pin {
   return mapPinRow(row);
 }
 
+function mapRequiredString(
+  row: StringRow | undefined,
+  stringId: string,
+): BoardString {
+  if (!row) {
+    throw new Error(`String ${stringId} was not saved`);
+  }
+
+  return mapStringRow(row);
+}
+
 function mapStringRow(row: StringRow): BoardString {
   return {
     id: row.id,
@@ -350,8 +484,17 @@ function mapStringRow(row: StringRow): BoardString {
     fromPinId: row.from_pin_id,
     toPinId: row.to_pin_id,
     kind: row.kind,
+    source: row.source,
     clueType: row.clue_type,
+    confidence:
+      typeof row.confidence === "string"
+        ? Number.parseFloat(row.confidence)
+        : row.confidence,
+    stroke: row.stroke,
     explanation: row.explanation,
+    recalledMemory: row.recalled_memory,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
   };
 }
 

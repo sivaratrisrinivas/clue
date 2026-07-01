@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useTransition } from "react";
 
-import type { MysteryBoard, Pin } from "../board-state";
+import type { BoardString, MysteryBoard, Pin } from "../board-state";
 
 type BoardProps = {
   initialBoard: MysteryBoard;
@@ -11,6 +11,7 @@ type BoardProps = {
 export function Board({ initialBoard }: BoardProps) {
   const [board, setBoard] = useState(initialBoard);
   const [text, setText] = useState("");
+  const [selectedStringId, setSelectedStringId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -58,14 +59,12 @@ export function Board({ initialBoard }: BoardProps) {
       return;
     }
 
-    const updatedPin = (await response.json()) as Pin;
-    setBoard((current) => ({
-      ...current,
-      pins: current.pins.map((pin) =>
-        pin.id === updatedPin.id ? updatedPin : pin,
-      ),
-    }));
+    const refreshedBoard = (await response.json()) as MysteryBoard;
+    setBoard(refreshedBoard);
   }
+
+  const selectedString =
+    board.strings.find((string) => string.id === selectedStringId) ?? null;
 
   return (
     <section aria-label="Investigation board" className="board-plane">
@@ -108,24 +107,78 @@ export function Board({ initialBoard }: BoardProps) {
           <p>No Pins yet</p>
         </div>
       ) : (
-        <ol aria-label="Pins" className="pin-list">
-          {board.pins.map((pin) => (
-            <li
-              key={pin.id}
-              className="pin"
-              style={{ left: pin.x, top: pin.y }}
-            >
-              <p>{pin.text}</p>
-              <span>{memoryLabel(pin)}</span>
-              {pin.memoryStatus === "memory_failed" ? (
-                <button type="button" onClick={() => void rememberPin(pin.id)}>
-                  Retry memory
-                </button>
-              ) : null}
-            </li>
-          ))}
-        </ol>
+        <>
+          <div aria-label="Strings" className="string-layer">
+            {board.strings.map((string) => {
+              const geometry = stringGeometry(string, board.pins);
+              if (!geometry) {
+                return null;
+              }
+
+              return (
+                <button
+                  key={string.id}
+                  type="button"
+                  aria-label={stringLabel(string, board.pins)}
+                  className={`string-line ${stringClassName(string)}`}
+                  style={{
+                    left: geometry.left,
+                    top: geometry.top,
+                    width: geometry.width,
+                    transform: `rotate(${geometry.angle}rad)`,
+                  }}
+                  onClick={() => setSelectedStringId(string.id)}
+                />
+              );
+            })}
+          </div>
+
+          <ol aria-label="Pins" className="pin-list">
+            {board.pins.map((pin) => (
+              <li
+                key={pin.id}
+                className="pin"
+                style={{ left: pin.x, top: pin.y }}
+              >
+                <p>{pin.text}</p>
+                <span>{memoryLabel(pin)}</span>
+                {pin.memoryStatus === "memory_failed" ? (
+                  <button type="button" onClick={() => void rememberPin(pin.id)}>
+                    Retry memory
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </>
       )}
+
+      {selectedString ? (
+        <div
+          aria-label="String explanation"
+          aria-modal="false"
+          className="string-explanation"
+          role="dialog"
+        >
+          <button
+            type="button"
+            aria-label="Close String explanation"
+            className="string-explanation__close"
+            onClick={() => setSelectedStringId(null)}
+          >
+            x
+          </button>
+          <p className="string-explanation__type">
+            {formatClueType(selectedString.clueType)}
+          </p>
+          <p>{pinText(selectedString.fromPinId, board.pins)}</p>
+          <p>{pinText(selectedString.toPinId, board.pins)}</p>
+          <p>{selectedString.explanation}</p>
+          {selectedString.recalledMemory ? (
+            <p>{selectedString.recalledMemory}</p>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -140,4 +193,62 @@ function memoryLabel(pin: Pin): string {
   }
 
   return "Ready for connection work";
+}
+
+function stringGeometry(
+  string: BoardString,
+  pins: readonly Pin[],
+): { left: number; top: number; width: number; angle: number } | null {
+  const fromPin = pins.find((pin) => pin.id === string.fromPinId);
+  const toPin = pins.find((pin) => pin.id === string.toPinId);
+
+  if (!fromPin || !toPin) {
+    return null;
+  }
+
+  const from = pinCenter(fromPin);
+  const to = pinCenter(toPin);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+
+  return {
+    left: from.x,
+    top: from.y,
+    width: Math.hypot(dx, dy),
+    angle: Math.atan2(dy, dx),
+  };
+}
+
+function pinCenter(pin: Pin): { x: number; y: number } {
+  return {
+    x: pin.x + 110,
+    y: pin.y + 66,
+  };
+}
+
+function stringClassName(string: BoardString): string {
+  if (string.stroke === "red_solid") {
+    return "string-line--red-solid";
+  }
+
+  return "string-line--blue-dashed";
+}
+
+function stringLabel(string: BoardString, pins: readonly Pin[]): string {
+  return `Cognee String between ${pinText(string.fromPinId, pins)} and ${pinText(
+    string.toPinId,
+    pins,
+  )}`;
+}
+
+function pinText(pinId: string, pins: readonly Pin[]): string {
+  return pins.find((pin) => pin.id === pinId)?.text ?? "Unknown Pin";
+}
+
+function formatClueType(clueType: BoardString["clueType"]): string {
+  const label = clueType
+    .split("_")
+    .join(" ");
+
+  return label[0].toUpperCase() + label.slice(1);
 }

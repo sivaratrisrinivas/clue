@@ -18,15 +18,20 @@ export async function POST(_request: Request, context: RouteContext) {
   }
 
   try {
-    await rememberPinWithCognee(pin);
-    const updatedPin = await store.markPinReadyForConnection(pinId);
-    return NextResponse.json(updatedPin);
+    const discoveredStrings = await rememberPinWithCognee(pin, board.pins);
+    await store.markPinReadyForConnection(pinId);
+
+    for (const discoveredString of discoveredStrings) {
+      await store.addDiscoveredString(discoveredString);
+    }
+
+    return NextResponse.json(await store.getCanonicalMysteryBoard());
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
         : "Cognee memory failed. Retry when the service is available.";
-    const updatedPin = await store.markPinMemoryFailed(pinId, message);
-    return NextResponse.json(updatedPin);
+    await store.markPinMemoryFailed(pinId, message);
+    return NextResponse.json(await store.getCanonicalMysteryBoard());
   }
 }

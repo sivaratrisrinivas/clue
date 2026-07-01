@@ -3,6 +3,8 @@ import React from "react";
 import { Board } from "./board";
 import { createServerBoardStateStore } from "../server-board-store";
 
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const store = await createServerBoardStateStore();
   const board = await store.getCanonicalMysteryBoard();

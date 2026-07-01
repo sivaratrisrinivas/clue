@@ -64,6 +64,51 @@ describe("board state", () => {
     ]);
   });
 
+  it("persists a defensible Cognee-discovered String as board rendering state", async () => {
+    const store = createInMemoryBoardStateStore();
+    const firstPin = await store.addTextPin("Kim left around midnight");
+    const secondPin = await store.addTextPin("The Lucky Star receipt was printed at 12:43 AM");
+
+    const string = await store.addDiscoveredString({
+      fromPinId: firstPin.id,
+      toPinId: secondPin.id,
+      clueType: "temporal_proximity",
+      confidence: 0.86,
+      explanation:
+        "Cognee recalled both Pins around the same late-night window.",
+      recalledMemory: "Kim leaving and the receipt timestamp are near each other.",
+    });
+    const board = await store.getCanonicalMysteryBoard();
+
+    expect(string).toMatchObject({
+      mysteryId: "canonical-party-mystery",
+      fromPinId: firstPin.id,
+      toPinId: secondPin.id,
+      kind: "discovered",
+      source: "cognee",
+      clueType: "temporal_proximity",
+      confidence: 0.86,
+      stroke: "red_solid",
+      explanation:
+        "Cognee recalled both Pins around the same late-night window.",
+      recalledMemory: "Kim leaving and the receipt timestamp are near each other.",
+    });
+    expect(board.strings).toEqual([string]);
+    expect(board.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "string.discovered",
+          payload: {
+            stringId: string.id,
+            fromPinId: firstPin.id,
+            toPinId: secondPin.id,
+            clueType: "temporal_proximity",
+          },
+        }),
+      ]),
+    );
+  });
+
   it("loads the canonical Mystery board through a Neon query executor", async () => {
     const queries: string[] = [];
     const store = createNeonBoardStateStore({

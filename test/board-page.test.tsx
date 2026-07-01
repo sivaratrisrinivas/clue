@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -80,5 +80,80 @@ describe("Mystery board page", () => {
         method: "POST",
       });
     });
+  });
+
+  it("renders a Cognee-discovered String and opens its explanation", async () => {
+    render(
+      <Board
+        initialBoard={{
+          mystery: {
+            id: "canonical-party-mystery",
+            title: CANONICAL_MYSTERY_TITLE,
+          },
+          pins: [
+            {
+              id: "pin-kim-left",
+              mysteryId: "canonical-party-mystery",
+              text: "Kim left around midnight",
+              x: 120,
+              y: 140,
+              memoryStatus: "ready_for_connection",
+              memoryError: null,
+              deletedAt: null,
+            },
+            {
+              id: "pin-receipt",
+              mysteryId: "canonical-party-mystery",
+              text: "Lucky Star receipt at 12:43 AM",
+              x: 420,
+              y: 260,
+              memoryStatus: "ready_for_connection",
+              memoryError: null,
+              deletedAt: null,
+            },
+          ],
+          strings: [
+            {
+              id: "string-late-night",
+              mysteryId: "canonical-party-mystery",
+              fromPinId: "pin-kim-left",
+              toPinId: "pin-receipt",
+              kind: "discovered",
+              source: "cognee",
+              clueType: "temporal_proximity",
+              confidence: 0.86,
+              stroke: "red_solid",
+              explanation:
+                "Cognee recalled both Pins in the same late-night window.",
+              recalledMemory:
+                "Kim leaving and the Lucky Star receipt were close in time.",
+              createdAt: new Date("2026-07-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+            },
+          ],
+          events: [],
+        }}
+      />,
+    );
+
+    const string = screen.getByRole("button", {
+      name: "Cognee String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
+    });
+    expect(string).toBeVisible();
+    expect(string).toHaveClass("string-line--red-solid");
+
+    fireEvent.click(string);
+
+    const dialog = screen.getByRole("dialog", { name: "String explanation" });
+    expect(dialog).toBeVisible();
+    expect(within(dialog).getByText("Kim left around midnight")).toBeVisible();
+    expect(within(dialog).getByText("Lucky Star receipt at 12:43 AM")).toBeVisible();
+    expect(within(dialog).getByText("Temporal proximity")).toBeVisible();
+    expect(
+      screen.getByText("Cognee recalled both Pins in the same late-night window."),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Kim leaving and the Lucky Star receipt were close in time."),
+    ).toBeVisible();
   });
 });

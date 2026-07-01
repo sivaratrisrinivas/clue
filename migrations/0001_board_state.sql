@@ -27,6 +27,7 @@ create table if not exists strings (
   from_pin_id text not null references pins(id) on delete cascade,
   to_pin_id text not null references pins(id) on delete cascade,
   kind text not null check (kind in ('discovered', 'manual')),
+  source text not null check (source in ('cognee', 'manual')),
   clue_type text not null check (
     clue_type in (
       'shared_entity',
@@ -35,8 +36,12 @@ create table if not exists strings (
       'manual_connection'
     )
   ),
+  confidence double precision not null check (confidence >= 0 and confidence <= 1),
+  stroke text not null check (stroke in ('red_solid', 'blue_dashed')),
   explanation text not null,
-  created_at timestamptz not null default now()
+  recalled_memory text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists events (
