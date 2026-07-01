@@ -12,6 +12,15 @@ export function Board({ initialBoard }: BoardProps) {
   const [board, setBoard] = useState(initialBoard);
   const [text, setText] = useState("");
   const [selectedStringId, setSelectedStringId] = useState<string | null>(null);
+  const [draggingPin, setDraggingPin] = useState<{
+    pinId: string;
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -23,6 +32,52 @@ export function Board({ initialBoard }: BoardProps) {
       void rememberPin(pin.id);
     }
   }, [board.pins]);
+
+  useEffect(() => {
+    if (!draggingPin) {
+      return;
+    }
+
+    function handleDragMove(event: MouseEvent | PointerEvent) {
+      setDraggingPin((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const nextX = current.startX + event.clientX - current.startClientX;
+        const nextY = current.startY + event.clientY - current.startClientY;
+        movePinLocally(current.pinId, nextX, nextY);
+
+        return {
+          ...current,
+          x: nextX,
+          y: nextY,
+        };
+      });
+    }
+
+    function handleDragEnd() {
+      setDraggingPin((current) => {
+        if (current) {
+          void persistPinPosition(current.pinId, current.x, current.y);
+        }
+
+        return null;
+      });
+    }
+
+    document.addEventListener("mousemove", handleDragMove);
+    document.addEventListener("mouseup", handleDragEnd, { once: true });
+    document.addEventListener("pointermove", handleDragMove);
+    document.addEventListener("pointerup", handleDragEnd, { once: true });
+
+    return () => {
+      document.removeEventListener("mousemove", handleDragMove);
+      document.removeEventListener("mouseup", handleDragEnd);
+      document.removeEventListener("pointermove", handleDragMove);
+      document.removeEventListener("pointerup", handleDragEnd);
+    };
+  }, [draggingPin]);
 
   function addPin() {
     const pinText = text.trim();
@@ -53,6 +108,60 @@ export function Board({ initialBoard }: BoardProps) {
   async function rememberPin(pinId: string) {
     const response = await fetch(`/api/pins/${pinId}/remember`, {
       method: "POST",
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const refreshedBoard = (await response.json()) as MysteryBoard;
+    setBoard(refreshedBoard);
+  }
+
+  function startDraggingPin(pin: Pin, event: React.MouseEvent | React.PointerEvent) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    setDraggingPin({
+      pinId: pin.id,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: pin.x,
+      startY: pin.y,
+      x: pin.x,
+      y: pin.y,
+    });
+  }
+
+  function movePinLocally(pinId: string, x: number, y: number) {
+    setBoard((current) => ({
+      ...current,
+      pins: current.pins.map((pin) =>
+        pin.id === pinId ? { ...pin, x, y } : pin,
+      ),
+    }));
+  }
+
+  async function persistPinPosition(pinId: string, x: number, y: number) {
+    const response = await fetch(`/api/pins/${pinId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ x: Math.round(x), y: Math.round(y) }),
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const refreshedBoard = (await response.json()) as MysteryBoard;
+    setBoard(refreshedBoard);
+  }
+
+  async function deletePin(pinId: string) {
+    const response = await fetch(`/api/pins/${pinId}`, {
+      method: "DELETE",
     });
 
     if (!response.ok) {
@@ -139,11 +248,27 @@ export function Board({ initialBoard }: BoardProps) {
                 key={pin.id}
                 className="pin"
                 style={{ left: pin.x, top: pin.y }}
+                onMouseDown={(event) => startDraggingPin(pin, event)}
+                onPointerDown={(event) => startDraggingPin(pin, event)}
               >
                 <p>{pin.text}</p>
                 <span>{memoryLabel(pin)}</span>
+                <button
+                  type="button"
+                  aria-label={`Delete Pin: ${pin.text}`}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => void deletePin(pin.id)}
+                >
+                  Delete Pin
+                </button>
                 {pin.memoryStatus === "memory_failed" ? (
-                  <button type="button" onClick={() => void rememberPin(pin.id)}>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => void rememberPin(pin.id)}
+                  >
                     Retry memory
                   </button>
                 ) : null}

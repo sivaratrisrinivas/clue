@@ -69,6 +69,8 @@ export interface BoardStateStore {
   getCanonicalMysteryBoard(): Promise<MysteryBoard>;
   addTextPin(text: string): Promise<Pin>;
   addDiscoveredString(input: DiscoveredStringInput): Promise<BoardString>;
+  movePin(pinId: string, position: { x: number; y: number }): Promise<Pin>;
+  deletePin(pinId: string): Promise<void>;
   markPinReadyForConnection(pinId: string): Promise<Pin>;
   markPinMemoryFailed(pinId: string, message: string): Promise<Pin>;
 }
@@ -97,7 +99,7 @@ export function createInMemoryBoardStateStore(
 
   return {
     async getCanonicalMysteryBoard() {
-      return cloneBoard(board);
+      return cloneVisibleBoard(board);
     },
     async addTextPin(text) {
       const pin = createRememberingPin(text);
@@ -118,6 +120,24 @@ export function createInMemoryBoardStateStore(
         }),
       );
       return cloneString(string);
+    },
+    async movePin(pinId, position) {
+      const pin = findPin(board, pinId);
+      pin.x = position.x;
+      pin.y = position.y;
+      board.events.push(
+        createBoardEvent("pin.moved", {
+          pinId,
+          x: position.x,
+          y: position.y,
+        }),
+      );
+      return clonePin(pin);
+    },
+    async deletePin(pinId) {
+      const pin = findPin(board, pinId);
+      pin.deletedAt = new Date();
+      board.events.push(createBoardEvent("pin.deleted", { pinId }));
     },
     async markPinReadyForConnection(pinId) {
       const pin = findPin(board, pinId);
@@ -162,6 +182,16 @@ export function createNeonBoardStateStore(executor: QueryExecutor): BoardStateSt
            confidence, stroke, explanation, recalled_memory, created_at, updated_at
          from strings
          where mystery_id = $1
+           and exists (
+             select 1 from pins
+             where pins.id = strings.from_pin_id
+               and pins.deleted_at is null
+           )
+           and exists (
+             select 1 from pins
+             where pins.id = strings.to_pin_id
+               and pins.deleted_at is null
+           )
          order by created_at asc`,
         [canonicalMystery.id],
       );
@@ -251,6 +281,34 @@ export function createNeonBoardStateStore(executor: QueryExecutor): BoardStateSt
 
       return mappedString;
     },
+    async movePin(pinId, position) {
+      const [pin] = await queryRows<PinRow>(
+        executor,
+        `update pins
+         set x = $3,
+             y = $4,
+             updated_at = now()
+         where id = $1 and mystery_id = $2 and deleted_at is null
+         returning id, mystery_id, text, x, y, memory_status, memory_error, deleted_at`,
+        [pinId, canonicalMystery.id, position.x, position.y],
+      );
+      await insertEvent(executor, "pin.moved", {
+        pinId,
+        x: position.x,
+        y: position.y,
+      });
+      return mapRequiredPin(pin, pinId);
+    },
+    async deletePin(pinId) {
+      await executor.query(
+        `update pins
+         set deleted_at = now(),
+             updated_at = now()
+         where id = $1 and mystery_id = $2 and deleted_at is null`,
+        [pinId, canonicalMystery.id],
+      );
+      await insertEvent(executor, "pin.deleted", { pinId });
+    },
     async markPinReadyForConnection(pinId) {
       const [pin] = await queryRows<PinRow>(
         executor,
@@ -324,6 +382,20 @@ function cloneBoard(board: MysteryBoard): MysteryBoard {
       createdAt: new Date(event.createdAt),
     })),
   };
+}
+
+function cloneVisibleBoard(board: MysteryBoard): MysteryBoard {
+  const visiblePins = board.pins.filter((pin) => pin.deletedAt === null);
+  const visiblePinIds = new Set(visiblePins.map((pin) => pin.id));
+
+  return cloneBoard({
+    ...board,
+    pins: visiblePins,
+    strings: board.strings.filter(
+      (string) =>
+        visiblePinIds.has(string.fromPinId) && visiblePinIds.has(string.toPinId),
+    ),
+  });
 }
 
 function cloneString(string: BoardString): BoardString {

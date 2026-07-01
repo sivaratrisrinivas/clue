@@ -269,6 +269,9 @@ h1 {
   box-shadow:
     0 12px 22px rgba(38, 31, 20, 0.18),
     inset 0 -18px 28px rgba(145, 106, 35, 0.08);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
 .pin::before {

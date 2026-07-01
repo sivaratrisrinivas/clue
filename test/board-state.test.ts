@@ -109,6 +109,57 @@ describe("board state", () => {
     );
   });
 
+  it("moves a Pin and restores its updated board position", async () => {
+    const store = createInMemoryBoardStateStore();
+    const pin = await store.addTextPin("Kim left around midnight");
+
+    const movedPin = await store.movePin(pin.id, { x: 360, y: 225 });
+    const board = await store.getCanonicalMysteryBoard();
+
+    expect(movedPin).toMatchObject({
+      id: pin.id,
+      x: 360,
+      y: 225,
+    });
+    expect(board.pins).toEqual([movedPin]);
+    expect(board.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "pin.moved",
+          payload: { pinId: pin.id, x: 360, y: 225 },
+        }),
+      ]),
+    );
+  });
+
+  it("deletes a Pin and restores a board without incoherent visible Strings", async () => {
+    const store = createInMemoryBoardStateStore();
+    const firstPin = await store.addTextPin("Kim left around midnight");
+    const secondPin = await store.addTextPin("Lucky Star receipt at 12:43 AM");
+    await store.addDiscoveredString({
+      fromPinId: firstPin.id,
+      toPinId: secondPin.id,
+      clueType: "temporal_proximity",
+      confidence: 0.86,
+      explanation: "Cognee recalled both Pins in the same late-night window.",
+      recalledMemory: "Kim leaving and the receipt timestamp are near each other.",
+    });
+
+    await store.deletePin(firstPin.id);
+    const board = await store.getCanonicalMysteryBoard();
+
+    expect(board.pins).toEqual([expect.objectContaining({ id: secondPin.id })]);
+    expect(board.strings).toEqual([]);
+    expect(board.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "pin.deleted",
+          payload: { pinId: firstPin.id },
+        }),
+      ]),
+    );
+  });
+
   it("loads the canonical Mystery board through a Neon query executor", async () => {
     const queries: string[] = [];
     const store = createNeonBoardStateStore({
@@ -142,5 +193,80 @@ describe("board state", () => {
     expect(queries.join("\n")).toContain("insert into mysteries");
     expect(queries.join("\n")).toContain("from pins");
     expect(queries.join("\n")).toContain("from strings");
+  });
+
+  it("persists Pin movement through a Neon query executor", async () => {
+    const queries: Array<{ text: string; params: readonly unknown[] | undefined }> = [];
+    const store = createNeonBoardStateStore({
+      async query(text, params) {
+        queries.push({ text, params });
+
+        if (text.includes("update pins")) {
+          return [
+            {
+              id: "pin-kim-left",
+              mystery_id: "canonical-party-mystery",
+              text: "Kim left around midnight",
+              x: 360,
+              y: 225,
+              memory_status: "ready_for_connection",
+              memory_error: null,
+              deleted_at: null,
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const movedPin = await store.movePin("pin-kim-left", { x: 360, y: 225 });
+
+    expect(movedPin).toMatchObject({ id: "pin-kim-left", x: 360, y: 225 });
+    expect(queries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining("set x = $3"),
+          params: ["pin-kim-left", "canonical-party-mystery", 360, 225],
+        }),
+        expect.objectContaining({
+          text: expect.stringContaining("insert into events"),
+          params: expect.arrayContaining([
+            "canonical-party-mystery",
+            "pin.moved",
+            JSON.stringify({ pinId: "pin-kim-left", x: 360, y: 225 }),
+          ]),
+        }),
+      ]),
+    );
+  });
+
+  it("persists Pin deletion through a Neon query executor", async () => {
+    const queries: Array<{ text: string; params: readonly unknown[] | undefined }> = [];
+    const store = createNeonBoardStateStore({
+      async query(text, params) {
+        queries.push({ text, params });
+        return [];
+      },
+    });
+
+    await store.deletePin("pin-kim-left");
+
+    expect(queries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining("set deleted_at = now()"),
+          params: ["pin-kim-left", "canonical-party-mystery"],
+        }),
+        expect.objectContaining({
+          text: expect.stringContaining("insert into events"),
+          params: expect.arrayContaining([
+            "canonical-party-mystery",
+            "pin.deleted",
+            JSON.stringify({ pinId: "pin-kim-left" }),
+          ]),
+        }),
+      ]),
+    );
   });
 });
