@@ -50,6 +50,11 @@ export type DiscoveredStringInput = {
   recalledMemory?: string | null;
 };
 
+export type ManualStringInput = {
+  fromPinId: string;
+  toPinId: string;
+};
+
 export type MysteryBoard = {
   mystery: Mystery;
   pins: Pin[];
@@ -69,6 +74,7 @@ export interface BoardStateStore {
   getCanonicalMysteryBoard(): Promise<MysteryBoard>;
   addTextPin(text: string): Promise<Pin>;
   addDiscoveredString(input: DiscoveredStringInput): Promise<BoardString>;
+  addManualString(input: ManualStringInput): Promise<BoardString>;
   movePin(pinId: string, position: { x: number; y: number }): Promise<Pin>;
   deletePin(pinId: string): Promise<void>;
   markPinReadyForConnection(pinId: string): Promise<Pin>;
@@ -113,6 +119,20 @@ export function createInMemoryBoardStateStore(
       board.strings.push(string);
       board.events.push(
         createBoardEvent("string.discovered", {
+          stringId: string.id,
+          fromPinId: string.fromPinId,
+          toPinId: string.toPinId,
+          clueType: string.clueType,
+        }),
+      );
+      return cloneString(string);
+    },
+    async addManualString(input) {
+      assertStringPinsExist(board, input.fromPinId, input.toPinId);
+      const string = createManualString(input);
+      board.strings.push(string);
+      board.events.push(
+        createBoardEvent("string.manual_created", {
           stringId: string.id,
           fromPinId: string.fromPinId,
           toPinId: string.toPinId,
@@ -239,40 +259,22 @@ export function createNeonBoardStateStore(executor: QueryExecutor): BoardStateSt
       await ensureCanonicalMystery(executor);
 
       const string = createDiscoveredString(input);
-      const [savedString] = await queryRows<StringRow>(
-        executor,
-        `insert into strings (
-           id,
-           mystery_id,
-           from_pin_id,
-           to_pin_id,
-           kind,
-           source,
-           clue_type,
-           confidence,
-           stroke,
-           explanation,
-           recalled_memory
-         )
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         returning id, mystery_id, from_pin_id, to_pin_id, kind, source, clue_type,
-           confidence, stroke, explanation, recalled_memory, created_at, updated_at`,
-        [
-          string.id,
-          string.mysteryId,
-          string.fromPinId,
-          string.toPinId,
-          string.kind,
-          string.source,
-          string.clueType,
-          string.confidence,
-          string.stroke,
-          string.explanation,
-          string.recalledMemory,
-        ],
-      );
-      const mappedString = mapRequiredString(savedString, string.id);
+      const mappedString = await insertString(executor, string);
       await insertEvent(executor, "string.discovered", {
+        stringId: mappedString.id,
+        fromPinId: mappedString.fromPinId,
+        toPinId: mappedString.toPinId,
+        clueType: mappedString.clueType,
+      });
+
+      return mappedString;
+    },
+    async addManualString(input) {
+      await ensureCanonicalMystery(executor);
+
+      const string = createManualString(input);
+      const mappedString = await insertString(executor, string);
+      await insertEvent(executor, "string.manual_created", {
         stringId: mappedString.id,
         fromPinId: mappedString.fromPinId,
         toPinId: mappedString.toPinId,
@@ -363,6 +365,46 @@ async function insertEvent(
   );
 }
 
+async function insertString(
+  executor: QueryExecutor,
+  string: BoardString,
+): Promise<BoardString> {
+  const [savedString] = await queryRows<StringRow>(
+    executor,
+    `insert into strings (
+       id,
+       mystery_id,
+       from_pin_id,
+       to_pin_id,
+       kind,
+       source,
+       clue_type,
+       confidence,
+       stroke,
+       explanation,
+       recalled_memory
+     )
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     returning id, mystery_id, from_pin_id, to_pin_id, kind, source, clue_type,
+       confidence, stroke, explanation, recalled_memory, created_at, updated_at`,
+    [
+      string.id,
+      string.mysteryId,
+      string.fromPinId,
+      string.toPinId,
+      string.kind,
+      string.source,
+      string.clueType,
+      string.confidence,
+      string.stroke,
+      string.explanation,
+      string.recalledMemory,
+    ],
+  );
+
+  return mapRequiredString(savedString, string.id);
+}
+
 async function queryRows<T>(
   executor: QueryExecutor,
   text: string,
@@ -441,6 +483,26 @@ function createDiscoveredString(input: DiscoveredStringInput): BoardString {
     stroke: "red_solid",
     explanation: input.explanation,
     recalledMemory: input.recalledMemory ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function createManualString(input: ManualStringInput): BoardString {
+  const now = new Date();
+
+  return {
+    id: crypto.randomUUID(),
+    mysteryId: canonicalMystery.id,
+    fromPinId: input.fromPinId,
+    toPinId: input.toPinId,
+    kind: "manual",
+    source: "manual",
+    clueType: "manual_connection",
+    confidence: 1,
+    stroke: "blue_dashed",
+    explanation: "An investigator manually connected these Pins on the board.",
+    recalledMemory: null,
     createdAt: now,
     updatedAt: now,
   };

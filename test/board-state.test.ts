@@ -109,6 +109,54 @@ describe("board state", () => {
     );
   });
 
+  it("persists a manual String separately from Cognee-discovered Strings", async () => {
+    const store = createInMemoryBoardStateStore();
+    const firstPin = await store.addTextPin("Kim left around midnight");
+    const secondPin = await store.addTextPin("Lucky Star receipt at 12:43 AM");
+    const discoveredString = await store.addDiscoveredString({
+      fromPinId: firstPin.id,
+      toPinId: secondPin.id,
+      clueType: "temporal_proximity",
+      confidence: 0.86,
+      explanation: "Cognee recalled both Pins in the same late-night window.",
+      recalledMemory: "Kim leaving and the receipt timestamp are near each other.",
+    });
+
+    const manualString = await store.addManualString({
+      fromPinId: firstPin.id,
+      toPinId: secondPin.id,
+    });
+    const board = await store.getCanonicalMysteryBoard();
+
+    expect(manualString).toMatchObject({
+      mysteryId: "canonical-party-mystery",
+      fromPinId: firstPin.id,
+      toPinId: secondPin.id,
+      kind: "manual",
+      source: "manual",
+      clueType: "manual_connection",
+      confidence: 1,
+      stroke: "blue_dashed",
+      explanation:
+        "An investigator manually connected these Pins on the board.",
+      recalledMemory: null,
+    });
+    expect(board.strings).toEqual([discoveredString, manualString]);
+    expect(board.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "string.manual_created",
+          payload: {
+            stringId: manualString.id,
+            fromPinId: firstPin.id,
+            toPinId: secondPin.id,
+            clueType: "manual_connection",
+          },
+        }),
+      ]),
+    );
+  });
+
   it("moves a Pin and restores its updated board position", async () => {
     const store = createInMemoryBoardStateStore();
     const pin = await store.addTextPin("Kim left around midnight");
@@ -235,6 +283,86 @@ describe("board state", () => {
             "canonical-party-mystery",
             "pin.moved",
             JSON.stringify({ pinId: "pin-kim-left", x: 360, y: 225 }),
+          ]),
+        }),
+      ]),
+    );
+  });
+
+  it("persists a manual String through a Neon query executor", async () => {
+    const queries: Array<{ text: string; params: readonly unknown[] | undefined }> = [];
+    const store = createNeonBoardStateStore({
+      async query(text, params) {
+        queries.push({ text, params });
+
+        if (text.includes("insert into strings")) {
+          return [
+            {
+              id: params?.[0],
+              mystery_id: "canonical-party-mystery",
+              from_pin_id: "pin-kim-left",
+              to_pin_id: "pin-receipt",
+              kind: "manual",
+              source: "manual",
+              clue_type: "manual_connection",
+              confidence: 1,
+              stroke: "blue_dashed",
+              explanation:
+                "An investigator manually connected these Pins on the board.",
+              recalled_memory: null,
+              created_at: "2026-07-01T00:00:00.000Z",
+              updated_at: "2026-07-01T00:00:00.000Z",
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const string = await store.addManualString({
+      fromPinId: "pin-kim-left",
+      toPinId: "pin-receipt",
+    });
+
+    expect(string).toMatchObject({
+      fromPinId: "pin-kim-left",
+      toPinId: "pin-receipt",
+      kind: "manual",
+      source: "manual",
+      clueType: "manual_connection",
+      confidence: 1,
+      stroke: "blue_dashed",
+      recalledMemory: null,
+    });
+    expect(queries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining("insert into strings"),
+          params: expect.arrayContaining([
+            "canonical-party-mystery",
+            "pin-kim-left",
+            "pin-receipt",
+            "manual",
+            "manual",
+            "manual_connection",
+            1,
+            "blue_dashed",
+            "An investigator manually connected these Pins on the board.",
+            null,
+          ]),
+        }),
+        expect.objectContaining({
+          text: expect.stringContaining("insert into events"),
+          params: expect.arrayContaining([
+            "canonical-party-mystery",
+            "string.manual_created",
+            JSON.stringify({
+              stringId: string.id,
+              fromPinId: "pin-kim-left",
+              toPinId: "pin-receipt",
+              clueType: "manual_connection",
+            }),
           ]),
         }),
       ]),

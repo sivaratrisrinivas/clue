@@ -157,6 +157,114 @@ describe("Mystery board page", () => {
     ).toBeVisible();
   });
 
+  it("lets an investigator create and inspect a manual String", async () => {
+    const board = {
+      mystery: {
+        id: "canonical-party-mystery",
+        title: CANONICAL_MYSTERY_TITLE,
+      },
+      pins: [
+        {
+          id: "pin-kim-left",
+          mysteryId: "canonical-party-mystery",
+          text: "Kim left around midnight",
+          x: 120,
+          y: 140,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+        {
+          id: "pin-receipt",
+          mysteryId: "canonical-party-mystery",
+          text: "Lucky Star receipt at 12:43 AM",
+          x: 420,
+          y: 260,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+      ],
+      strings: [],
+      events: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...board,
+              strings: [
+                {
+                  id: "string-manual",
+                  mysteryId: "canonical-party-mystery",
+                  fromPinId: "pin-kim-left",
+                  toPinId: "pin-receipt",
+                  kind: "manual" as const,
+                  source: "manual" as const,
+                  clueType: "manual_connection" as const,
+                  confidence: 1,
+                  stroke: "blue_dashed" as const,
+                  explanation:
+                    "An investigator manually connected these Pins on the board.",
+                  recalledMemory: null,
+                  createdAt: new Date("2026-07-01T00:00:00.000Z"),
+                  updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+                },
+              ],
+            }),
+            {
+              status: 201,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      ),
+    );
+
+    render(<Board initialBoard={board} />);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Start manual String from Kim left around midnight",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Finish manual String to Lucky Star receipt at 12:43 AM",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/strings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromPinId: "pin-kim-left",
+          toPinId: "pin-receipt",
+        }),
+      });
+    });
+
+    const string = await screen.findByRole("button", {
+      name: "Manual String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
+    });
+    expect(string).toHaveClass("string-line--blue-dashed");
+
+    fireEvent.click(string);
+
+    const dialog = screen.getByRole("dialog", { name: "String explanation" });
+    expect(within(dialog).getByText("Manual connection")).toBeVisible();
+    expect(within(dialog).getByText("Kim left around midnight")).toBeVisible();
+    expect(within(dialog).getByText("Lucky Star receipt at 12:43 AM")).toBeVisible();
+    expect(
+      within(dialog).getByText(
+        "An investigator manually connected these Pins on the board.",
+      ),
+    ).toBeVisible();
+  });
+
   it("lets an investigator drag a Pin and keeps its String connected", async () => {
     const refreshedBoard = {
       mystery: {
@@ -231,6 +339,109 @@ describe("Mystery board page", () => {
     const pin = screen.getByText("Kim left around midnight").closest("li");
     const string = screen.getByRole("button", {
       name: "Cognee String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
+    });
+    expect(pin).not.toBeNull();
+    expect(string).toHaveStyle({ left: "230px", top: "206px" });
+
+    fireEvent.mouseDown(pin!, {
+      button: 0,
+      clientX: 130,
+      clientY: 150,
+    });
+    fireEvent.mouseMove(document, {
+      clientX: 310,
+      clientY: 210,
+    });
+    fireEvent.mouseUp(document);
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/pins/pin-kim-left", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ x: 300, y: 200 }),
+      });
+    });
+    await waitFor(() => {
+      expect(pin).toHaveStyle({ left: "300px", top: "200px" });
+      expect(string).toHaveStyle({ left: "410px", top: "266px" });
+    });
+  });
+
+  it("keeps a manual String attached after an investigator drags a Pin", async () => {
+    const refreshedBoard = {
+      mystery: {
+        id: "canonical-party-mystery",
+        title: CANONICAL_MYSTERY_TITLE,
+      },
+      pins: [
+        {
+          id: "pin-kim-left",
+          mysteryId: "canonical-party-mystery",
+          text: "Kim left around midnight",
+          x: 300,
+          y: 200,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+        {
+          id: "pin-receipt",
+          mysteryId: "canonical-party-mystery",
+          text: "Lucky Star receipt at 12:43 AM",
+          x: 420,
+          y: 260,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+      ],
+      strings: [
+        {
+          id: "string-manual",
+          mysteryId: "canonical-party-mystery",
+          fromPinId: "pin-kim-left",
+          toPinId: "pin-receipt",
+          kind: "manual" as const,
+          source: "manual" as const,
+          clueType: "manual_connection" as const,
+          confidence: 1,
+          stroke: "blue_dashed" as const,
+          explanation:
+            "An investigator manually connected these Pins on the board.",
+          recalledMemory: null,
+          createdAt: new Date("2026-07-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+        },
+      ],
+      events: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(refreshedBoard), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    render(
+      <Board
+        initialBoard={{
+          ...refreshedBoard,
+          pins: [
+            { ...refreshedBoard.pins[0], x: 120, y: 140 },
+            refreshedBoard.pins[1],
+          ],
+        }}
+      />,
+    );
+
+    const pin = screen.getByText("Kim left around midnight").closest("li");
+    const string = screen.getByRole("button", {
+      name: "Manual String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
     });
     expect(pin).not.toBeNull();
     expect(string).toHaveStyle({ left: "230px", top: "206px" });

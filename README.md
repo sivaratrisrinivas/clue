@@ -8,7 +8,7 @@ The current app opens directly to one Mystery:
 
 ## What it does
 
-Clue gives an investigator a full-screen board for collecting evidence. The board loads the canonical Mystery, restores durable board state, and lets the investigator add text-only Pins. A Pin appears immediately, enters a visible remembering state, then either becomes ready for connection work or shows a retryable memory failure. When Cognee recalls a defensible relationship to another Pin, Clue renders a red solid String with an inspectable explanation. Investigators can drag Pins into useful spatial arrangements and delete mistaken Pins without leaving incoherent visible Strings behind.
+Clue gives an investigator a full-screen board for collecting evidence. The board loads the canonical Mystery, restores durable board state, and lets the investigator add text-only Pins. A Pin appears immediately, enters a visible remembering state, then either becomes ready for connection work or shows a retryable memory failure. When Cognee recalls a defensible relationship to another Pin, Clue renders a red solid String with an inspectable explanation. Investigators can also manually assert a relationship between two Pins as a blue dashed String. Pins can be dragged into useful spatial arrangements and deleted without leaving incoherent visible Strings behind.
 
 The app owns the board state:
 
@@ -32,23 +32,24 @@ The short version:
 This repo is a Next.js app.
 
 - The home page renders the Mystery board.
-- `src/app/board.tsx` renders the Pin composer, visible Pins, drag/delete interactions, Cognee-discovered Strings, and String explanations.
+- `src/app/board.tsx` renders the Pin composer, visible Pins, drag/delete interactions, Cognee-discovered Strings, manual Strings, and String explanations.
 - `src/app/api/pins/route.ts` saves text-only Pins before memory work starts.
 - `src/app/api/pins/[pinId]/route.ts` persists Pin movement and deletion, then returns the refreshed board.
 - `src/app/api/pins/[pinId]/remember/route.ts` runs server-side remembering, persists defensible Cognee-discovered Strings, and preserves saved Pins on failure.
+- `src/app/api/strings/route.ts` persists investigator-created manual Strings, then returns the refreshed board.
 - `src/board-state.ts` defines the board-state interface.
 - `src/board-state-source.ts` chooses the data source.
 - `src/neon-executor.ts` connects to Neon when `DATABASE_URL` is set.
 - `migrations/0001_board_state.sql` creates the four app-owned tables.
 - `migrations/0002_discovered_string_rendering.sql` adds discovered String rendering fields for existing databases.
 - `src/cognee-memory.ts` calls Cognee's server-side REST remember and recall endpoints when Cognee credentials are configured.
-- Tests cover the board loader, Pin creation, Pin dragging, Neon-backed movement/deletion persistence, coherent visible Strings after movement/deletion, memory failure behavior, Cognee recall filtering, discovered String rendering, schema boundary, browser boundary, and Cognee server-side boundary.
+- Tests cover the board loader, Pin creation, Pin dragging, Neon-backed movement/deletion persistence, coherent visible Strings after movement/deletion, memory failure behavior, Cognee recall filtering, discovered String rendering, manual String creation/rendering/persistence, schema boundary, browser boundary, and Cognee server-side boundary.
 
 Without `DATABASE_URL`, the app uses an in-memory board store so the UI can still run locally. With `DATABASE_URL`, it uses Neon for board state.
 
 ## MVP issue status
 
-Issues #3, #4, and #5 are implemented for the app-owned flow:
+Issues #3, #4, #5, and #6 are implemented for the app-owned flow:
 
 - Text-only Pins can be added from the board.
 - Pins are saved immediately before memory work runs.
@@ -59,9 +60,12 @@ Issues #3, #4, and #5 are implemented for the app-owned flow:
 - The app does not fabricate fallback Clues or Strings when Cognee fails.
 - Server-side Cognee recall can produce defensible Clues for Pins in the current Mystery.
 - Cognee-discovered Strings render as red solid Strings between the correct Pins.
+- Manual Strings render as blue dashed Strings between investigator-selected Pins.
 - Clicking a String opens an explanation that names both Pins, the Clue Type, and recalled Cognee memory when available.
+- Manual String explanations identify the Clue Type as manual connection without pretending Cognee discovered them.
 - Weak, vague, or explanation-free Cognee results are filtered before they render.
 - Persisted String state stores rendering data, source, Clue Type, confidence, explanation, timestamps, and app events without duplicating Cognee entities, embeddings, graph nodes, or semantic relationships in Neon.
+- Manual Strings persist as app-owned board state separately from Cognee-discovered Strings.
 - Pins can be dragged around the board; attached Strings stay connected because their geometry is derived from the current Pin positions.
 - Pin movement persists through the board-state store and Neon-backed route, so refreshed boards restore updated positions.
 - Mistaken Pins can be deleted from the visible board.

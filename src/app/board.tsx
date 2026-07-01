@@ -12,6 +12,9 @@ export function Board({ initialBoard }: BoardProps) {
   const [board, setBoard] = useState(initialBoard);
   const [text, setText] = useState("");
   const [selectedStringId, setSelectedStringId] = useState<string | null>(null);
+  const [manualStringStartPinId, setManualStringStartPinId] = useState<
+    string | null
+  >(null);
   const [draggingPin, setDraggingPin] = useState<{
     pinId: string;
     startClientX: number;
@@ -172,6 +175,35 @@ export function Board({ initialBoard }: BoardProps) {
     setBoard(refreshedBoard);
   }
 
+  async function chooseManualStringPin(pinId: string) {
+    if (!manualStringStartPinId) {
+      setManualStringStartPinId(pinId);
+      return;
+    }
+
+    if (manualStringStartPinId === pinId) {
+      setManualStringStartPinId(null);
+      return;
+    }
+
+    const response = await fetch("/api/strings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fromPinId: manualStringStartPinId,
+        toPinId: pinId,
+      }),
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const refreshedBoard = (await response.json()) as MysteryBoard;
+    setManualStringStartPinId(null);
+    setBoard(refreshedBoard);
+  }
+
   const selectedString =
     board.strings.find((string) => string.id === selectedStringId) ?? null;
 
@@ -261,6 +293,18 @@ export function Board({ initialBoard }: BoardProps) {
                   onClick={() => void deletePin(pin.id)}
                 >
                   Delete Pin
+                </button>
+                <button
+                  type="button"
+                  aria-label={manualStringButtonLabel(
+                    pin,
+                    manualStringStartPinId,
+                  )}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => void chooseManualStringPin(pin.id)}
+                >
+                  String
                 </button>
                 {pin.memoryStatus === "memory_failed" ? (
                   <button
@@ -360,10 +404,27 @@ function stringClassName(string: BoardString): string {
 }
 
 function stringLabel(string: BoardString, pins: readonly Pin[]): string {
-  return `Cognee String between ${pinText(string.fromPinId, pins)} and ${pinText(
+  const source = string.source === "manual" ? "Manual" : "Cognee";
+
+  return `${source} String between ${pinText(string.fromPinId, pins)} and ${pinText(
     string.toPinId,
     pins,
   )}`;
+}
+
+function manualStringButtonLabel(
+  pin: Pin,
+  manualStringStartPinId: string | null,
+): string {
+  if (!manualStringStartPinId) {
+    return `Start manual String from ${pin.text}`;
+  }
+
+  if (manualStringStartPinId === pin.id) {
+    return `Cancel manual String from ${pin.text}`;
+  }
+
+  return `Finish manual String to ${pin.text}`;
 }
 
 function pinText(pinId: string, pins: readonly Pin[]): string {

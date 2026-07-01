@@ -22,12 +22,19 @@ pnpm-debug.log*
 .env.*
 .env*.local
 !.env.example
+.envrc
+.direnv/
 
 *.pem
 *.key
 *.crt
 *.p12
 *.pfx
+*.asc
+*.gpg
+*.kubeconfig
 *.sqlite
 *.sqlite3
 *.db
+*.dump
+*.backup
