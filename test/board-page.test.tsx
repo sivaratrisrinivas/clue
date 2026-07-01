@@ -395,6 +395,133 @@ describe("Mystery board page", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("lets an investigator Reconsider Board and see a new Cognee String", async () => {
+    const board = {
+      mystery: {
+        id: "canonical-party-mystery",
+        title: CANONICAL_MYSTERY_TITLE,
+      },
+      pins: [
+        {
+          id: "pin-kim-left",
+          mysteryId: "canonical-party-mystery",
+          text: "Kim left around midnight",
+          x: 120,
+          y: 140,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+        {
+          id: "pin-receipt",
+          mysteryId: "canonical-party-mystery",
+          text: "Lucky Star receipt at 12:43 AM",
+          x: 420,
+          y: 260,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+      ],
+      strings: [],
+      events: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            board: {
+              ...board,
+              strings: [
+                {
+                  id: "string-late-night",
+                  mysteryId: "canonical-party-mystery",
+                  fromPinId: "pin-kim-left",
+                  toPinId: "pin-receipt",
+                  kind: "discovered" as const,
+                  source: "cognee" as const,
+                  clueType: "temporal_proximity" as const,
+                  confidence: 0.87,
+                  stroke: "red_solid" as const,
+                  explanation:
+                    "Cognee recalled both Pins in the same late-night window.",
+                  recalledMemory:
+                    "Kim leaving and the Lucky Star receipt were close in time.",
+                  createdAt: new Date("2026-07-01T00:00:00.000Z"),
+                  updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+                },
+              ],
+            },
+            reconsiderBoard: {
+              newStringCount: 1,
+            },
+          }),
+        ),
+      ),
+    );
+
+    render(<Board initialBoard={board} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconsider Board" }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/reconsider-board", {
+        method: "POST",
+      });
+    });
+    expect(await screen.findByText("1 new Clue surfaced")).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Cognee String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
+      }),
+    ).toHaveClass("string-line--red-solid");
+  });
+
+  it("reports no new Clues yet when Reconsider Board finds no defensible Strings", async () => {
+    const board = {
+      mystery: {
+        id: "canonical-party-mystery",
+        title: CANONICAL_MYSTERY_TITLE,
+      },
+      pins: [
+        {
+          id: "pin-kim-left",
+          mysteryId: "canonical-party-mystery",
+          text: "Kim left around midnight",
+          x: 120,
+          y: 140,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+      ],
+      strings: [],
+      events: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            board,
+            reconsiderBoard: {
+              newStringCount: 0,
+              message: "No new Clues yet.",
+            },
+          }),
+        ),
+      ),
+    );
+
+    render(<Board initialBoard={board} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconsider Board" }));
+
+    expect(await screen.findByText("No new Clues yet.")).toBeVisible();
+    expect(screen.queryByLabelText("Strings")).toBeEmptyDOMElement();
+  });
+
   it("lets an investigator drag a Pin and keeps its String connected", async () => {
     const refreshedBoard = {
       mystery: {

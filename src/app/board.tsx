@@ -14,6 +14,16 @@ type BoardQueryResult = {
   queryKind: "time_window" | "entity_connections" | "unresolved_leads";
 };
 
+type ReconsiderBoardResult = {
+  newStringCount: number;
+  message?: string;
+};
+
+type ReconsiderBoardResponse = {
+  board: MysteryBoard;
+  reconsiderBoard: ReconsiderBoardResult;
+};
+
 export function Board({ initialBoard }: BoardProps) {
   const [board, setBoard] = useState(initialBoard);
   const [text, setText] = useState("");
@@ -22,6 +32,13 @@ export function Board({ initialBoard }: BoardProps) {
     useState<BoardQueryResult | null>(null);
   const [boardQueryError, setBoardQueryError] = useState<string | null>(null);
   const [isBoardQueryPending, setIsBoardQueryPending] = useState(false);
+  const [reconsiderBoardResult, setReconsiderBoardResult] =
+    useState<ReconsiderBoardResult | null>(null);
+  const [reconsiderBoardError, setReconsiderBoardError] = useState<string | null>(
+    null,
+  );
+  const [isReconsiderBoardPending, setIsReconsiderBoardPending] =
+    useState(false);
   const [selectedStringId, setSelectedStringId] = useState<string | null>(null);
   const [manualStringStartPinId, setManualStringStartPinId] = useState<
     string | null
@@ -250,6 +267,40 @@ export function Board({ initialBoard }: BoardProps) {
     }
   }
 
+  async function reconsiderBoard() {
+    if (isReconsiderBoardPending) {
+      return;
+    }
+
+    setIsReconsiderBoardPending(true);
+    setReconsiderBoardError(null);
+    setReconsiderBoardResult(null);
+
+    try {
+      const response = await fetch("/api/reconsider-board", {
+        method: "POST",
+      });
+      const body = (await response.json()) as
+        | ReconsiderBoardResponse
+        | { error?: string };
+
+      if (!response.ok) {
+        setReconsiderBoardError(
+          "error" in body && body.error
+            ? body.error
+            : "Reconsider Board failed. Retry when memory is available.",
+        );
+        return;
+      }
+
+      const result = body as ReconsiderBoardResponse;
+      setBoard(result.board);
+      setReconsiderBoardResult(result.reconsiderBoard);
+    } finally {
+      setIsReconsiderBoardPending(false);
+    }
+  }
+
   const selectedString =
     board.strings.find((string) => string.id === selectedStringId) ?? null;
 
@@ -266,6 +317,21 @@ export function Board({ initialBoard }: BoardProps) {
 
       <div className="mystery-heading">
         <h1>{board.mystery.title}</h1>
+        <button
+          type="button"
+          disabled={isReconsiderBoardPending}
+          onClick={() => void reconsiderBoard()}
+        >
+          Reconsider Board
+        </button>
+        {reconsiderBoardResult ? (
+          <p className="reconsider-board__status">
+            {formatReconsiderBoardResult(reconsiderBoardResult)}
+          </p>
+        ) : null}
+        {reconsiderBoardError ? (
+          <p className="reconsider-board__error">{reconsiderBoardError}</p>
+        ) : null}
       </div>
 
       <form
@@ -525,4 +591,16 @@ function formatBoardQueryKind(queryKind: BoardQueryResult["queryKind"]): string 
     entity_connections: "Entity connections",
     unresolved_leads: "Unresolved leads",
   }[queryKind];
+}
+
+function formatReconsiderBoardResult(result: ReconsiderBoardResult): string {
+  if (result.newStringCount === 0) {
+    return result.message ?? "No new Clues yet.";
+  }
+
+  if (result.newStringCount === 1) {
+    return "1 new Clue surfaced";
+  }
+
+  return `${result.newStringCount} new Clues surfaced`;
 }

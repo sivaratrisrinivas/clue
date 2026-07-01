@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CogneeMemoryUnavailableError,
   queryBoardWithCognee,
+  reconsiderBoardWithCognee,
   rememberPinWithCognee,
 } from "../src/cognee-memory";
 import type { MysteryBoard, Pin } from "../src/board-state";
@@ -313,6 +314,69 @@ describe("Cognee memory", () => {
     await expect(
       queryBoardWithCognee("What are the strongest unresolved leads?", testBoard()),
     ).rejects.toThrow("Cognee Board Query returned 503");
+  });
+
+  it("asks Cognee to Reconsider Board against the whole current Mystery", async () => {
+    vi.stubEnv("COGNEE_API_KEY", "test-cognee-key");
+    vi.stubEnv("COGNEE_BASE_URL", "https://tenant.cognee.example.test");
+    const fetch = vi.fn<(input: URL, init: RequestInit) => Promise<Response>>(
+      async () =>
+        Response.json([
+          {
+            text: JSON.stringify({
+              clues: [
+                {
+                  fromPinId: "pin-kim-left",
+                  toPinId: "pin-receipt",
+                  clueType: "temporal_proximity",
+                  confidence: 0.88,
+                  explanation:
+                    "Cognee recalled both Pins in the same late-night window.",
+                  recalledMemory:
+                    "Kim left around midnight and the receipt printed at 12:43 AM.",
+                },
+              ],
+            }),
+          },
+        ]),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const clues = await reconsiderBoardWithCognee(testBoard());
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("/api/v1/recall", "https://tenant.cognee.example.test"),
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": "test-cognee-key",
+        },
+      }),
+    );
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string);
+    expect(body).toMatchObject({
+      datasets: ["clue-canonical-party-mystery"],
+      includeReferences: true,
+      searchType: "GRAPH_COMPLETION",
+      topK: 10,
+    });
+    expect(body.query).toContain("Reconsider Board");
+    expect(body.query).toContain("Pin ID: pin-kim-left");
+    expect(body.query).toContain("Pin ID: pin-receipt");
+    expect(body.query).toContain("Do not invent vague Strings.");
+    expect(clues).toEqual([
+      {
+        fromPinId: "pin-kim-left",
+        toPinId: "pin-receipt",
+        clueType: "temporal_proximity",
+        confidence: 0.88,
+        explanation:
+          "Cognee recalled both Pins in the same late-night window.",
+        recalledMemory:
+          "Kim left around midnight and the receipt printed at 12:43 AM.",
+      },
+    ]);
   });
 });
 

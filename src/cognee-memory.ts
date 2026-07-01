@@ -112,6 +112,48 @@ export async function queryBoardWithCognee(
   );
 }
 
+export async function reconsiderBoardWithCognee(
+  board: MysteryBoard,
+): Promise<DiscoveredStringInput[]> {
+  const apiKey = envValue("COGNEE_API_KEY");
+  const serviceUrl =
+    envValue("COGNEE_BASE_URL") ??
+    envValue("COGNEE_SERVICE_URL") ??
+    "https://api.cognee.ai";
+
+  if (!apiKey) {
+    throw new CogneeMemoryUnavailableError(
+      "Cognee memory is unavailable to the app runtime. Set COGNEE_API_KEY and COGNEE_SERVICE_URL, or run a local Cognee HTTP service.",
+    );
+  }
+
+  const response = await fetch(new URL("/api/v1/recall", serviceUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": apiKey,
+    },
+    body: JSON.stringify({
+      datasets: [`clue-${board.mystery.id}`],
+      includeReferences: true,
+      query: createReconsiderBoardPrompt(board),
+      searchType: "GRAPH_COMPLETION",
+      topK: 10,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new CogneeMemoryUnavailableError(
+      `Cognee Reconsider Board returned ${response.status}. Retry when the service is available.`,
+    );
+  }
+
+  return parseDefensibleClues(
+    extractRecallCandidates(await readJson(response)),
+    board.pins,
+  );
+}
+
 function createRememberPinBody(pin: Pin): FormData {
   const body = new FormData();
 
@@ -216,6 +258,24 @@ function createBoardQueryPrompt(question: string, board: MysteryBoard): string {
     '{"answer":"concise grounded answer","groundedPinIds":["current-pin-id"],"queryKind":"time_window|entity_connections|unresolved_leads"}',
     "The answer must cite only current Pin IDs in groundedPinIds.",
     "If Cognee memory does not support an answer, say what is missing instead of fabricating one.",
+  ].join("\n");
+}
+
+function createReconsiderBoardPrompt(board: MysteryBoard): string {
+  return [
+    "You are helping Clue Reconsider Board for a whole Mystery.",
+    "Use only Cognee memory from the named dataset and the current Mystery Pins listed here.",
+    "Surface only new defensible Clues that should render as Cognee Strings.",
+    "A Clue is defensible when Cognee recalls both Pin texts and can cite a concrete shared entity, close event time, or meaningful semantic relation.",
+    "Do not invent vague Strings. Do not use unrelated memories, outside knowledge, other mysteries, or background scanning.",
+    `Mystery ID: ${board.mystery.id}`,
+    `Mystery title: ${board.mystery.title}`,
+    "Current Pins:",
+    ...board.pins.map((pin) => `Pin ID: ${pin.id}\nPin text: ${pin.text}`),
+    "Return only JSON with this exact shape:",
+    '{"clues":[{"fromPinId":"current-pin-id","toPinId":"current-pin-id","clueType":"shared_entity|temporal_proximity|semantic_relation","confidence":0.0,"explanation":"concise defensible reason","recalledMemory":"what Cognee recalled"}]}',
+    "Set confidence between 0.65 and 1 for clear remembered evidence.",
+    'Return {"clues":[]} when there are no new defensible Clues yet.',
   ].join("\n");
 }
 
