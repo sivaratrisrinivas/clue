@@ -1,13 +1,10 @@
 import React from "react";
 
 import { Board } from "./board";
-import { createServerBoardStateStore } from "../server-board-store";
+import { createSyntheticDemoRound } from "../demo-round";
 
-export const dynamic = "force-dynamic";
-
-export default async function Home() {
-  const store = await createServerBoardStateStore();
-  const board = await store.getCanonicalMysteryBoard();
+export default function Home() {
+  const { board } = createSyntheticDemoRound();
 
   return (
     <main aria-label="Mystery board" className="board-shell">

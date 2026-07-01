@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import Home from "../src/app/page";
 import { Board } from "../src/app/board";
-import { CANONICAL_MYSTERY_TITLE } from "../src/board-state";
+import Home from "../src/app/page";
+import { createSyntheticDemoRound } from "../src/demo-round";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -12,806 +12,95 @@ afterEach(() => {
 });
 
 describe("Mystery board page", () => {
-  it("opens directly to the canonical empty Mystery board", async () => {
-    render(await Home());
+  it("opens directly to a prefilled synthetic Investigation Round", () => {
+    render(<Home />);
 
     expect(
-      screen.getByRole("heading", { name: CANONICAL_MYSTERY_TITLE }),
+      screen.getByRole("heading", {
+        name: "Who hid the flash drive after the party?",
+      }),
     ).toBeVisible();
     expect(screen.getByRole("main", { name: "Mystery board" })).toBeVisible();
-    expect(screen.getByText("No Pins yet")).toBeVisible();
+    expect(screen.getByText("Synthetic round loaded")).toBeVisible();
+    expect(screen.getByText("4/8 Pins revealed")).toBeVisible();
+    expect(screen.getByText(/Party invite says/)).toBeVisible();
+    expect(screen.queryByText(/Doorman saw Kim/)).not.toBeInTheDocument();
   });
 
-  it("lets an investigator add a text-only Pin and see it remembering", async () => {
-    const pin = {
-      id: "pin-kim-left",
-      mysteryId: "canonical-party-mystery",
-      text: "Kim left around midnight",
-      x: 120,
-      y: 140,
-      memoryStatus: "remembering" as const,
-      memoryError: null,
-      deletedAt: null,
-    };
-    const pendingRemember = new Promise<Response>(() => {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request) => {
-        const url = String(input);
+  it("lets an investigator reveal synthetic Pins instead of typing them", () => {
+    render(<Board initialBoard={createSyntheticDemoRound().board} />);
 
-        if (url.includes("/remember")) {
-          return pendingRemember;
-        }
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Evidence" }));
 
-        return Promise.resolve(
-          new Response(JSON.stringify(pin), {
-            status: 201,
-            headers: { "Content-Type": "application/json" },
-          }),
-        );
+    expect(screen.getByText(/Doorman saw Kim/)).toBeVisible();
+    expect(screen.getByText(/Spare keycard used/)).toBeVisible();
+    expect(screen.getByText("6/8 Pins revealed")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Evidence" }));
+
+    expect(screen.getByText(/Voicemail from Theo/)).toBeVisible();
+    expect(screen.getByText(/Recovered photo shows/)).toBeVisible();
+    expect(screen.getByText("8/8 Pins revealed")).toBeVisible();
+  });
+
+  it("answers a prefilled Board Query from synthetic data", () => {
+    render(<Board initialBoard={createSyntheticDemoRound().board} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Which Pins put pressure on Kim?",
       }),
     );
+    fireEvent.click(screen.getByRole("button", { name: "Ask Board Query" }));
 
-    render(
-      <Board
-        initialBoard={{
-          mystery: {
-            id: "canonical-party-mystery",
-            title: CANONICAL_MYSTERY_TITLE,
-          },
-          pins: [],
-          strings: [],
-          events: [],
-        }}
-      />,
-    );
-
-    fireEvent.change(screen.getByLabelText("Pin text"), {
-      target: { value: "Kim left around midnight" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Add Pin" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Kim left around midnight")).toBeVisible();
-    });
-    expect(screen.getByText("Remembering")).toBeVisible();
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/pins/pin-kim-left/remember", {
-        method: "POST",
-      });
-    });
+    const answer = screen.getByLabelText("Board Query answer");
+    expect(within(answer).getByText("Entity connections")).toBeVisible();
+    expect(within(answer).getByText(/Kim's text/)).toBeVisible();
+    expect(within(answer).getByText("Grounded in 3 Pins")).toBeVisible();
   });
 
-  it("renders a Cognee-discovered String and opens its explanation", async () => {
-    render(
-      <Board
-        initialBoard={{
-          mystery: {
-            id: "canonical-party-mystery",
-            title: CANONICAL_MYSTERY_TITLE,
-          },
-          pins: [
-            {
-              id: "pin-kim-left",
-              mysteryId: "canonical-party-mystery",
-              text: "Kim left around midnight",
-              x: 120,
-              y: 140,
-              memoryStatus: "ready_for_connection",
-              memoryError: null,
-              deletedAt: null,
-            },
-            {
-              id: "pin-receipt",
-              mysteryId: "canonical-party-mystery",
-              text: "Lucky Star receipt at 12:43 AM",
-              x: 420,
-              y: 260,
-              memoryStatus: "ready_for_connection",
-              memoryError: null,
-              deletedAt: null,
-            },
-          ],
-          strings: [
-            {
-              id: "string-late-night",
-              mysteryId: "canonical-party-mystery",
-              fromPinId: "pin-kim-left",
-              toPinId: "pin-receipt",
-              kind: "discovered",
-              source: "cognee",
-              clueType: "temporal_proximity",
-              confidence: 0.86,
-              stroke: "red_solid",
-              explanation:
-                "Cognee recalled both Pins in the same late-night window.",
-              recalledMemory:
-                "Kim leaving and the Lucky Star receipt were close in time.",
-              createdAt: new Date("2026-07-01T00:00:00.000Z"),
-              updatedAt: new Date("2026-07-01T00:00:00.000Z"),
-            },
-          ],
-          events: [],
-        }}
-      />,
-    );
+  it("surfaces Cognee-style Strings during Reconsider Board", () => {
+    render(<Board initialBoard={createSyntheticDemoRound().board} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reconsider Board" }));
+
+    expect(screen.getByText("3 new Clues surfaced")).toBeVisible();
 
     const string = screen.getByRole("button", {
-      name: "Cognee String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
+      name: /Cognee String between Kim texted Maya/,
     });
-    expect(string).toBeVisible();
     expect(string).toHaveClass("string-line--red-solid");
 
     fireEvent.click(string);
 
     const dialog = screen.getByRole("dialog", { name: "String explanation" });
-    expect(dialog).toBeVisible();
-    expect(within(dialog).getByText("Kim left around midnight")).toBeVisible();
-    expect(within(dialog).getByText("Lucky Star receipt at 12:43 AM")).toBeVisible();
     expect(within(dialog).getByText("Temporal proximity")).toBeVisible();
-    expect(
-      screen.getByText("Cognee recalled both Pins in the same late-night window."),
-    ).toBeVisible();
-    expect(
-      screen.getByText("Kim leaving and the Lucky Star receipt were close in time."),
-    ).toBeVisible();
+    expect(within(dialog).getByText(/Kim asked for ten minutes/)).toBeVisible();
   });
 
-  it("lets an investigator create and inspect a manual String", async () => {
-    const board = {
-      mystery: {
-        id: "canonical-party-mystery",
-        title: CANONICAL_MYSTERY_TITLE,
-      },
-      pins: [
-        {
-          id: "pin-kim-left",
-          mysteryId: "canonical-party-mystery",
-          text: "Kim left around midnight",
-          x: 120,
-          y: 140,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-        {
-          id: "pin-receipt",
-          mysteryId: "canonical-party-mystery",
-          text: "Lucky Star receipt at 12:43 AM",
-          x: 420,
-          y: 260,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-      ],
-      strings: [],
-      events: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify({
-              ...board,
-              strings: [
-                {
-                  id: "string-manual",
-                  mysteryId: "canonical-party-mystery",
-                  fromPinId: "pin-kim-left",
-                  toPinId: "pin-receipt",
-                  kind: "manual" as const,
-                  source: "manual" as const,
-                  clueType: "manual_connection" as const,
-                  confidence: 1,
-                  stroke: "blue_dashed" as const,
-                  explanation:
-                    "An investigator manually connected these Pins on the board.",
-                  recalledMemory: null,
-                  createdAt: new Date("2026-07-01T00:00:00.000Z"),
-                  updatedAt: new Date("2026-07-01T00:00:00.000Z"),
-                },
-              ],
-            }),
-            {
-              status: 201,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        ),
-      ),
-    );
+  it("keeps the human in the loop with a manual String and final verdict", () => {
+    render(<Board initialBoard={createSyntheticDemoRound().board} />);
 
-    render(<Board initialBoard={board} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "String" }));
+    fireEvent.click(screen.getByText(/Kim texted Maya/));
+    fireEvent.click(screen.getByText(/Spare keycard used/));
+
+    const manualString = screen.getByRole("button", {
+      name: /Manual String between Kim texted Maya/,
+    });
+    expect(manualString).toHaveClass("string-line--blue-dashed");
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Start manual String from Kim left around midnight",
-      }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Finish manual String to Lucky Star receipt at 12:43 AM",
+        name: "Kim hid the flash drive under the DJ booth.",
       }),
     );
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/strings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fromPinId: "pin-kim-left",
-          toPinId: "pin-receipt",
-        }),
-      });
-    });
-
-    const string = await screen.findByRole("button", {
-      name: "Manual String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
-    });
-    expect(string).toHaveClass("string-line--blue-dashed");
-
-    fireEvent.click(string);
-
-    const dialog = screen.getByRole("dialog", { name: "String explanation" });
-    expect(within(dialog).getByText("Manual connection")).toBeVisible();
-    expect(within(dialog).getByText("Kim left around midnight")).toBeVisible();
-    expect(within(dialog).getByText("Lucky Star receipt at 12:43 AM")).toBeVisible();
-    expect(
-      within(dialog).getByText(
-        "An investigator manually connected these Pins on the board.",
-      ),
-    ).toBeVisible();
-  });
-
-  it("lets an investigator ask a bounded Board Query from the board", async () => {
-    const board = {
-      mystery: {
-        id: "canonical-party-mystery",
-        title: CANONICAL_MYSTERY_TITLE,
-      },
-      pins: [
-        {
-          id: "pin-kim-left",
-          mysteryId: "canonical-party-mystery",
-          text: "Kim left around midnight",
-          x: 120,
-          y: 140,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-        {
-          id: "pin-receipt",
-          mysteryId: "canonical-party-mystery",
-          text: "Lucky Star receipt at 12:43 AM",
-          x: 420,
-          y: 260,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-      ],
-      strings: [],
-      events: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          Response.json({
-            answer:
-              "Between midnight and 1 AM, Kim left and the Lucky Star receipt was printed at 12:43 AM.",
-            groundedPinIds: ["pin-kim-left", "pin-receipt"],
-            queryKind: "time_window",
-          }),
-        ),
-      ),
-    );
-
-    render(<Board initialBoard={board} />);
-
-    expect(screen.getByRole("form", { name: "Board Query" })).toBeVisible();
-    expect(screen.queryByText(/chat/i)).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Board Query question"), {
-      target: { value: "What happened between midnight and 1 AM?" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Ask Board Query" }));
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/board-query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: "What happened between midnight and 1 AM?",
-        }),
-      });
-    });
-    expect(
-      await screen.findByText(
-        "Between midnight and 1 AM, Kim left and the Lucky Star receipt was printed at 12:43 AM.",
-      ),
-    ).toBeVisible();
-    expect(screen.getByText("Time window")).toBeVisible();
-    expect(screen.getByText("Grounded in 2 Pins")).toBeVisible();
-  });
-
-  it("shows a recoverable Board Query failure without inventing an answer", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          Response.json(
-            {
-              error:
-                "Cognee Board Query returned 503. Retry when the service is available.",
-              recoverable: true,
-            },
-            { status: 503 },
-          ),
-        ),
-      ),
-    );
-
-    render(
-      <Board
-        initialBoard={{
-          mystery: {
-            id: "canonical-party-mystery",
-            title: CANONICAL_MYSTERY_TITLE,
-          },
-          pins: [
-            {
-              id: "pin-kim-left",
-              mysteryId: "canonical-party-mystery",
-              text: "Kim left around midnight",
-              x: 120,
-              y: 140,
-              memoryStatus: "ready_for_connection" as const,
-              memoryError: null,
-              deletedAt: null,
-            },
-          ],
-          strings: [],
-          events: [],
-        }}
-      />,
-    );
-
-    fireEvent.change(screen.getByLabelText("Board Query question"), {
-      target: { value: "What are the strongest unresolved leads?" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Ask Board Query" }));
-
-    expect(
-      await screen.findByText(
-        "Cognee Board Query returned 503. Retry when the service is available.",
-      ),
-    ).toBeVisible();
-    expect(
-      screen.queryByRole("region", { name: "Board Query answer" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("lets an investigator Reconsider Board and see a new Cognee String", async () => {
-    const board = {
-      mystery: {
-        id: "canonical-party-mystery",
-        title: CANONICAL_MYSTERY_TITLE,
-      },
-      pins: [
-        {
-          id: "pin-kim-left",
-          mysteryId: "canonical-party-mystery",
-          text: "Kim left around midnight",
-          x: 120,
-          y: 140,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-        {
-          id: "pin-receipt",
-          mysteryId: "canonical-party-mystery",
-          text: "Lucky Star receipt at 12:43 AM",
-          x: 420,
-          y: 260,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-      ],
-      strings: [],
-      events: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          Response.json({
-            board: {
-              ...board,
-              strings: [
-                {
-                  id: "string-late-night",
-                  mysteryId: "canonical-party-mystery",
-                  fromPinId: "pin-kim-left",
-                  toPinId: "pin-receipt",
-                  kind: "discovered" as const,
-                  source: "cognee" as const,
-                  clueType: "temporal_proximity" as const,
-                  confidence: 0.87,
-                  stroke: "red_solid" as const,
-                  explanation:
-                    "Cognee recalled both Pins in the same late-night window.",
-                  recalledMemory:
-                    "Kim leaving and the Lucky Star receipt were close in time.",
-                  createdAt: new Date("2026-07-01T00:00:00.000Z"),
-                  updatedAt: new Date("2026-07-01T00:00:00.000Z"),
-                },
-              ],
-            },
-            reconsiderBoard: {
-              newStringCount: 1,
-            },
-          }),
-        ),
-      ),
-    );
-
-    render(<Board initialBoard={board} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Reconsider Board" }));
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/reconsider-board", {
-        method: "POST",
-      });
-    });
-    expect(await screen.findByText("1 new Clue surfaced")).toBeVisible();
-    expect(
-      screen.getByRole("button", {
-        name: "Cognee String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
-      }),
-    ).toHaveClass("string-line--red-solid");
-  });
-
-  it("reports no new Clues yet when Reconsider Board finds no defensible Strings", async () => {
-    const board = {
-      mystery: {
-        id: "canonical-party-mystery",
-        title: CANONICAL_MYSTERY_TITLE,
-      },
-      pins: [
-        {
-          id: "pin-kim-left",
-          mysteryId: "canonical-party-mystery",
-          text: "Kim left around midnight",
-          x: 120,
-          y: 140,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-      ],
-      strings: [],
-      events: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          Response.json({
-            board,
-            reconsiderBoard: {
-              newStringCount: 0,
-              message: "No new Clues yet.",
-            },
-          }),
-        ),
-      ),
-    );
-
-    render(<Board initialBoard={board} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Reconsider Board" }));
-
-    expect(await screen.findByText("No new Clues yet.")).toBeVisible();
-    expect(screen.queryByLabelText("Strings")).toBeEmptyDOMElement();
-  });
-
-  it("lets an investigator drag a Pin and keeps its String connected", async () => {
-    const refreshedBoard = {
-      mystery: {
-        id: "canonical-party-mystery",
-        title: CANONICAL_MYSTERY_TITLE,
-      },
-      pins: [
-        {
-          id: "pin-kim-left",
-          mysteryId: "canonical-party-mystery",
-          text: "Kim left around midnight",
-          x: 300,
-          y: 200,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-        {
-          id: "pin-receipt",
-          mysteryId: "canonical-party-mystery",
-          text: "Lucky Star receipt at 12:43 AM",
-          x: 420,
-          y: 260,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-      ],
-      strings: [
-        {
-          id: "string-late-night",
-          mysteryId: "canonical-party-mystery",
-          fromPinId: "pin-kim-left",
-          toPinId: "pin-receipt",
-          kind: "discovered" as const,
-          source: "cognee" as const,
-          clueType: "temporal_proximity" as const,
-          confidence: 0.86,
-          stroke: "red_solid" as const,
-          explanation: "Cognee recalled both Pins in the same late-night window.",
-          recalledMemory: null,
-          createdAt: new Date("2026-07-01T00:00:00.000Z"),
-          updatedAt: new Date("2026-07-01T00:00:00.000Z"),
-        },
-      ],
-      events: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify(refreshedBoard), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-
-    render(
-      <Board
-        initialBoard={{
-          ...refreshedBoard,
-          pins: [
-            { ...refreshedBoard.pins[0], x: 120, y: 140 },
-            refreshedBoard.pins[1],
-          ],
-        }}
-      />,
-    );
-
-    const pin = screen.getByText("Kim left around midnight").closest("li");
-    const string = screen.getByRole("button", {
-      name: "Cognee String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
-    });
-    expect(pin).not.toBeNull();
-    expect(string).toHaveStyle({ left: "230px", top: "206px" });
-
-    fireEvent.mouseDown(pin!, {
-      button: 0,
-      clientX: 130,
-      clientY: 150,
-    });
-    fireEvent.mouseMove(document, {
-      clientX: 310,
-      clientY: 210,
-    });
-    fireEvent.mouseUp(document);
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/pins/pin-kim-left", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ x: 300, y: 200 }),
-      });
-    });
-    await waitFor(() => {
-      expect(pin).toHaveStyle({ left: "300px", top: "200px" });
-      expect(string).toHaveStyle({ left: "410px", top: "266px" });
-    });
-  });
-
-  it("keeps a manual String attached after an investigator drags a Pin", async () => {
-    const refreshedBoard = {
-      mystery: {
-        id: "canonical-party-mystery",
-        title: CANONICAL_MYSTERY_TITLE,
-      },
-      pins: [
-        {
-          id: "pin-kim-left",
-          mysteryId: "canonical-party-mystery",
-          text: "Kim left around midnight",
-          x: 300,
-          y: 200,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-        {
-          id: "pin-receipt",
-          mysteryId: "canonical-party-mystery",
-          text: "Lucky Star receipt at 12:43 AM",
-          x: 420,
-          y: 260,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-      ],
-      strings: [
-        {
-          id: "string-manual",
-          mysteryId: "canonical-party-mystery",
-          fromPinId: "pin-kim-left",
-          toPinId: "pin-receipt",
-          kind: "manual" as const,
-          source: "manual" as const,
-          clueType: "manual_connection" as const,
-          confidence: 1,
-          stroke: "blue_dashed" as const,
-          explanation:
-            "An investigator manually connected these Pins on the board.",
-          recalledMemory: null,
-          createdAt: new Date("2026-07-01T00:00:00.000Z"),
-          updatedAt: new Date("2026-07-01T00:00:00.000Z"),
-        },
-      ],
-      events: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify(refreshedBoard), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-
-    render(
-      <Board
-        initialBoard={{
-          ...refreshedBoard,
-          pins: [
-            { ...refreshedBoard.pins[0], x: 120, y: 140 },
-            refreshedBoard.pins[1],
-          ],
-        }}
-      />,
-    );
-
-    const pin = screen.getByText("Kim left around midnight").closest("li");
-    const string = screen.getByRole("button", {
-      name: "Manual String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
-    });
-    expect(pin).not.toBeNull();
-    expect(string).toHaveStyle({ left: "230px", top: "206px" });
-
-    fireEvent.mouseDown(pin!, {
-      button: 0,
-      clientX: 130,
-      clientY: 150,
-    });
-    fireEvent.mouseMove(document, {
-      clientX: 310,
-      clientY: 210,
-    });
-    fireEvent.mouseUp(document);
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/pins/pin-kim-left", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ x: 300, y: 200 }),
-      });
-    });
-    await waitFor(() => {
-      expect(pin).toHaveStyle({ left: "300px", top: "200px" });
-      expect(string).toHaveStyle({ left: "410px", top: "266px" });
-    });
-  });
-
-  it("lets an investigator delete a mistaken Pin without leaving its String visible", async () => {
-    const board = {
-      mystery: {
-        id: "canonical-party-mystery",
-        title: CANONICAL_MYSTERY_TITLE,
-      },
-      pins: [
-        {
-          id: "pin-kim-left",
-          mysteryId: "canonical-party-mystery",
-          text: "Kim left around midnight",
-          x: 120,
-          y: 140,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-        {
-          id: "pin-receipt",
-          mysteryId: "canonical-party-mystery",
-          text: "Lucky Star receipt at 12:43 AM",
-          x: 420,
-          y: 260,
-          memoryStatus: "ready_for_connection" as const,
-          memoryError: null,
-          deletedAt: null,
-        },
-      ],
-      strings: [
-        {
-          id: "string-late-night",
-          mysteryId: "canonical-party-mystery",
-          fromPinId: "pin-kim-left",
-          toPinId: "pin-receipt",
-          kind: "discovered" as const,
-          source: "cognee" as const,
-          clueType: "temporal_proximity" as const,
-          confidence: 0.86,
-          stroke: "red_solid" as const,
-          explanation: "Cognee recalled both Pins in the same late-night window.",
-          recalledMemory: null,
-          createdAt: new Date("2026-07-01T00:00:00.000Z"),
-          updatedAt: new Date("2026-07-01T00:00:00.000Z"),
-        },
-      ],
-      events: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify({
-              ...board,
-              pins: [board.pins[1]],
-              strings: [],
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        ),
-      ),
-    );
-
-    render(<Board initialBoard={board} />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Delete Pin: Kim left around midnight" }),
-    );
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/pins/pin-kim-left", {
-        method: "DELETE",
-      });
-    });
-    await waitFor(() => {
-      expect(screen.queryByText("Kim left around midnight")).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole("button", {
-          name: "Cognee String between Kim left around midnight and Lucky Star receipt at 12:43 AM",
-        }),
-      ).not.toBeInTheDocument();
-    });
-    expect(screen.getByText("Lucky Star receipt at 12:43 AM")).toBeVisible();
+    expect(screen.getByText(/^Correct\./)).toBeVisible();
   });
 });

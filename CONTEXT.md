@@ -16,6 +16,10 @@ _Avoid_: Project, case, workspace
 The core user-visible sequence after a pin is added: Pin, Remember, Connect. It describes the pin appearing, Cognee remembering it, and Clue surfacing related clues.
 _Avoid_: Workflow, pipeline, ingestion flow
 
+**Investigation Round**:
+A short, playable mystery session that uses prefilled synthetic pins and asks the investigator to reveal evidence, query the board, create or inspect strings, and choose a final explanation.
+_Avoid_: Onboarding flow, tutorial, demo script
+
 **Reconsider Board**:
 An explicit user action that asks Clue to re-evaluate the whole mystery and surface defensible new strings. It is the MVP version of the later autonomous cold-case behavior.
 _Avoid_: Cold mode, background scan, cron scan

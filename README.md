@@ -2,13 +2,17 @@
 
 Clue is an investigation board that makes memory visible.
 
-The current app opens directly to one Mystery:
+The current app opens directly to a short synthetic Investigation Round:
 
-> What happened at the party?
+> Who hid the flash drive after the party?
 
 ## What it does
 
-Clue gives an investigator a full-screen board for collecting evidence. The board loads the canonical Mystery, restores durable board state, and lets the investigator add text-only Pins. A Pin appears immediately, enters a visible remembering state, then either becomes ready for connection work or shows a retryable memory failure. When Cognee recalls a defensible relationship to another Pin, Clue renders a red solid String with an inspectable explanation. Investigators can also manually assert a relationship between two Pins as a blue dashed String. Pins can be dragged into useful spatial arrangements and deleted without leaving incoherent visible Strings behind. A bounded Board Query panel lets the investigator ask about the current Mystery's time windows, entity connections, and unresolved leads without turning the board into a general chat surface. Reconsider Board lets the investigator explicitly ask Cognee to re-evaluate the whole current Mystery and surface new defensible Strings, or honestly report that there are no new Clues yet.
+Clue gives an investigator a full-screen board for finding meaningful connections between evidence fragments. The current demo is a 3-5 minute playable Investigation Round that is fully prefilled with synthetic Pins, so a first-time user does not need to invent evidence before the product becomes useful.
+
+The round asks the investigator to reveal evidence packets, ask prefilled Board Queries, run Reconsider Board, inspect Cognee-style red Strings, create one blue dashed manual String, and choose a final explanation. Pins can still be dragged into useful spatial arrangements, and String explanations remain inspectable.
+
+The underlying app-owned flow still supports durable board state, text-only Pins, server-side Cognee remembering, manual Strings, bounded Board Queries, and Reconsider Board APIs. The synthetic round is the primary first-run experience; the backend surfaces remain available for product mode and tests.
 
 The app owns the board state:
 
@@ -23,16 +27,30 @@ Cognee is reserved for memory and retrieval work. Clue does not store entities, 
 
 Investigators often collect facts faster than they can see how those facts connect. Clue turns memory into something visible on the board: Pins are remembered by Cognee, then defensible recalled Clues become visible Strings between related Pins.
 
+The first-run game exists because users are unlikely to provide good Pins on a blank board. A synthetic round makes Clue immediately legible: the user sees Pins, asks useful questions, watches Strings appear, and makes a human-in-the-loop judgment inside a few minutes.
+
 The short version:
 
 > Cognee is the memory graph behind the Strings. Clue is the board that makes that memory visible.
+
+## First-time flow
+
+1. Open the app and read the first visible synthetic Pins.
+2. Click **Reveal Evidence** to reveal the next evidence packet.
+3. Click **Reveal Evidence** again until the HUD shows `8/8 Pins revealed`.
+4. Open **Query**, choose one of the prefilled Board Query questions, and click **Ask Board Query**.
+5. Open **Reconsider** and click **Reconsider Board** to surface red Cognee-style Strings.
+6. Click a red String to inspect why Clue thinks the connected Pins form a defensible Clue.
+7. In **String** mode, click two Pins to create a blue dashed manual String as the human investigator.
+8. In **Final**, choose the explanation that best solves the Mystery.
 
 ## How it works
 
 This repo is a Next.js app.
 
-- The home page renders the Mystery board.
-- `src/app/board.tsx` renders the Pin composer, visible Pins, drag/delete interactions, Cognee-discovered Strings, manual Strings, and String explanations.
+- The home page renders the synthetic Investigation Round.
+- `src/demo-round.ts` defines the synthetic Pins, staged reveals, Board Query answers, Cognee-style Strings, final verdicts, and round duration.
+- `src/app/board.tsx` renders the playable round, visible Pins, reveal/query/reconsider/manual-string/final actions, drag interactions, Strings, and String explanations.
 - `src/app/api/pins/route.ts` saves text-only Pins before memory work starts.
 - `src/app/api/pins/[pinId]/route.ts` persists Pin movement and deletion, then returns the refreshed board.
 - `src/app/api/pins/[pinId]/remember/route.ts` runs server-side remembering, persists defensible Cognee-discovered Strings, and preserves saved Pins on failure.
@@ -45,13 +63,22 @@ This repo is a Next.js app.
 - `migrations/0001_board_state.sql` creates the four app-owned tables.
 - `migrations/0002_discovered_string_rendering.sql` adds discovered String rendering fields for existing databases.
 - `src/cognee-memory.ts` calls Cognee's server-side REST remember and recall endpoints when Cognee credentials are configured.
-- Tests cover the board loader, Pin creation, Pin dragging, Neon-backed movement/deletion persistence, coherent visible Strings after movement/deletion, memory failure behavior, Cognee recall filtering, discovered String rendering, manual String creation/rendering/persistence, bounded Board Queries, Reconsider Board, schema boundary, browser boundary, and Cognee server-side boundary.
+- Tests cover the synthetic round, evidence reveal flow, prefilled Board Queries, Reconsider Board Strings, manual String creation, final verdict selection, board loader, Pin creation, Pin dragging, Neon-backed movement/deletion persistence, coherent visible Strings after movement/deletion, memory failure behavior, Cognee recall filtering, discovered String rendering, manual String persistence, bounded Board Queries, Reconsider Board, schema boundary, browser boundary, and Cognee server-side boundary.
 
 Without `DATABASE_URL`, the app uses an in-memory board store so the UI can still run locally. With `DATABASE_URL`, it uses Neon for board state.
 
 ## MVP issue status
 
-Issues #3, #4, #5, #6, #7, and #8 are implemented for the app-owned flow:
+Issues #3, #4, #5, #6, #7, and #8 are implemented for the app-owned flow. The primary demo is now the synthetic Investigation Round:
+
+- The app opens with prefilled synthetic Pins instead of an empty board.
+- The round is designed to take about 3-5 minutes.
+- Evidence is revealed in batches so the user has lightweight actions without needing to type Pins.
+- Board Query uses prefilled question choices for time windows, entity connections, and unresolved leads.
+- Reconsider Board surfaces defensible red Cognee-style Strings from the synthetic round.
+- The investigator creates one manual blue dashed String before choosing a final explanation.
+
+The underlying app-owned flow still supports:
 
 - Text-only Pins can be added from the board.
 - Pins are saved immediately before memory work runs.

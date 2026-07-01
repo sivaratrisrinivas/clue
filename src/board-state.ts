@@ -108,7 +108,7 @@ export function createInMemoryBoardStateStore(
       return cloneVisibleBoard(board);
     },
     async addTextPin(text) {
-      const pin = createRememberingPin(text);
+      const pin = createRememberingPin(text, visiblePinCount(board.pins));
       board.pins.push(pin);
       board.events.push(createBoardEvent("pin.created", { pinId: pin.id }));
       return clonePin(pin);
@@ -237,7 +237,14 @@ export function createNeonBoardStateStore(executor: QueryExecutor): BoardStateSt
     async addTextPin(text) {
       await ensureCanonicalMystery(executor);
 
-      const pin = createRememberingPin(text);
+      const [pinCount] = await queryRows<{ count: number | string }>(
+        executor,
+        `select count(*) as count
+         from pins
+         where mystery_id = $1 and deleted_at is null`,
+        [canonicalMystery.id],
+      );
+      const pin = createRememberingPin(text, Number(pinCount?.count ?? 0));
       await executor.query(
         `insert into pins (id, mystery_id, text, x, y, memory_status, memory_error)
          values ($1, $2, $3, $4, $5, $6, $7)`,
@@ -455,16 +462,34 @@ function clonePin(pin: Pin): Pin {
   };
 }
 
-function createRememberingPin(text: string): Pin {
+function createRememberingPin(text: string, visiblePinsBefore = 0): Pin {
+  const position = initialPinPosition(visiblePinsBefore);
+
   return {
     id: crypto.randomUUID(),
     mysteryId: canonicalMystery.id,
     text,
-    x: 120,
-    y: 140,
+    x: position.x,
+    y: position.y,
     memoryStatus: "remembering",
     memoryError: null,
     deletedAt: null,
+  };
+}
+
+function visiblePinCount(pins: readonly Pin[]): number {
+  return pins.filter((pin) => pin.deletedAt === null).length;
+}
+
+function initialPinPosition(index: number): { x: number; y: number } {
+  const columns = 4;
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  const rowOffset = row % 2 === 0 ? 0 : 86;
+
+  return {
+    x: 120 + column * 270 + rowOffset,
+    y: 140 + row * 178,
   };
 }
 

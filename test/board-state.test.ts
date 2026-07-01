@@ -41,6 +41,19 @@ describe("board state", () => {
     ]);
   });
 
+  it("spreads newly added Pins instead of stacking them", async () => {
+    const store = createInMemoryBoardStateStore();
+
+    await store.addTextPin("Kim left around midnight");
+    await store.addTextPin("Lucky Star receipt at 12:43 AM");
+    await store.addTextPin("Maya saw Kim near the kitchen at 11:55 PM");
+
+    const board = await store.getCanonicalMysteryBoard();
+    const positions = board.pins.map((pin) => `${pin.x},${pin.y}`);
+
+    expect(new Set(positions).size).toBe(3);
+  });
+
   it("keeps a saved Pin and does not invent Strings when memory fails", async () => {
     const store = createInMemoryBoardStateStore();
     const savedPin = await store.addTextPin("Lucky Star receipt at 12:43 AM");
