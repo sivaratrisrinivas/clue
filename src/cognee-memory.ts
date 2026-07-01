@@ -1,4 +1,20 @@
-import type { ClueType, DiscoveredStringInput, Pin } from "./board-state";
+import type {
+  ClueType,
+  DiscoveredStringInput,
+  MysteryBoard,
+  Pin,
+} from "./board-state";
+
+export type BoardQueryKind =
+  | "time_window"
+  | "entity_connections"
+  | "unresolved_leads";
+
+export type BoardQueryAnswer = {
+  answer: string;
+  groundedPinIds: string[];
+  queryKind: BoardQueryKind;
+};
 
 export class CogneeMemoryUnavailableError extends Error {
   constructor(
@@ -51,6 +67,49 @@ export async function rememberPinWithCognee(
   });
 
   return [...rememberedClues, ...recalledClues];
+}
+
+export async function queryBoardWithCognee(
+  question: string,
+  board: MysteryBoard,
+): Promise<BoardQueryAnswer> {
+  const apiKey = envValue("COGNEE_API_KEY");
+  const serviceUrl =
+    envValue("COGNEE_BASE_URL") ??
+    envValue("COGNEE_SERVICE_URL") ??
+    "https://api.cognee.ai";
+
+  if (!apiKey) {
+    throw new CogneeMemoryUnavailableError(
+      "Cognee memory is unavailable to the app runtime. Set COGNEE_API_KEY and COGNEE_SERVICE_URL, or run a local Cognee HTTP service.",
+    );
+  }
+
+  const response = await fetch(new URL("/api/v1/recall", serviceUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": apiKey,
+    },
+    body: JSON.stringify({
+      datasets: [`clue-${board.mystery.id}`],
+      includeReferences: true,
+      query: createBoardQueryPrompt(question, board),
+      searchType: "GRAPH_COMPLETION",
+      topK: 8,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new CogneeMemoryUnavailableError(
+      `Cognee Board Query returned ${response.status}. Retry when the service is available.`,
+    );
+  }
+
+  return parseBoardQueryAnswer(
+    extractRecallCandidates(await readJson(response)),
+    board,
+  );
 }
 
 function createRememberPinBody(pin: Pin): FormData {
@@ -142,6 +201,24 @@ function createRecallQuery(pin: Pin, candidatePins: readonly Pin[]): string {
   ].join("\n");
 }
 
+function createBoardQueryPrompt(question: string, board: MysteryBoard): string {
+  return [
+    "You are answering a bounded Board Query for Clue.",
+    "Use only Cognee memory from the named dataset and the current Mystery Pins listed here.",
+    "Do not answer as a general chat assistant. Do not use unrelated memories, outside knowledge, or other mysteries.",
+    "Supported Board Query kinds are time_window, entity_connections, and unresolved_leads.",
+    `Mystery ID: ${board.mystery.id}`,
+    `Mystery title: ${board.mystery.title}`,
+    "Current Pins:",
+    ...board.pins.map((pin) => `Pin ID: ${pin.id}\nPin text: ${pin.text}`),
+    `Investigator question: ${question}`,
+    "Return only JSON with this exact shape:",
+    '{"answer":"concise grounded answer","groundedPinIds":["current-pin-id"],"queryKind":"time_window|entity_connections|unresolved_leads"}',
+    "The answer must cite only current Pin IDs in groundedPinIds.",
+    "If Cognee memory does not support an answer, say what is missing instead of fabricating one.",
+  ].join("\n");
+}
+
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) {
@@ -203,6 +280,42 @@ function parseDefensibleClues(
       },
     ];
   });
+}
+
+function parseBoardQueryAnswer(
+  body: unknown,
+  board: MysteryBoard,
+): BoardQueryAnswer {
+  const fallback: BoardQueryAnswer = {
+    answer:
+      "Cognee did not return a grounded Board Query answer for the current Mystery.",
+    groundedPinIds: [],
+    queryKind: classifyBoardQuery(""),
+  };
+
+  if (!isRecord(body)) {
+    return fallback;
+  }
+
+  const answer = stringValue(body.answer).trim();
+  const queryKind = boardQueryKindValue(body.queryKind);
+  const currentPinIds = new Set(board.pins.map((pin) => pin.id));
+  const groundedPinIds = Array.isArray(body.groundedPinIds)
+    ? body.groundedPinIds.filter(
+        (pinId): pinId is string =>
+          typeof pinId === "string" && currentPinIds.has(pinId),
+      )
+    : [];
+
+  if (!answer || !queryKind) {
+    return fallback;
+  }
+
+  return {
+    answer,
+    groundedPinIds,
+    queryKind,
+  };
 }
 
 function extractRecallCandidates(body: unknown): unknown {
@@ -308,4 +421,40 @@ function clueTypeValue(value: unknown): DiscoveredStringInput["clueType"] | unde
   }
 
   return undefined;
+}
+
+function boardQueryKindValue(value: unknown): BoardQueryKind | undefined {
+  const queryKind = stringValue(value) as BoardQueryKind;
+
+  if (
+    queryKind === "time_window" ||
+    queryKind === "entity_connections" ||
+    queryKind === "unresolved_leads"
+  ) {
+    return queryKind;
+  }
+
+  return undefined;
+}
+
+function classifyBoardQuery(question: string): BoardQueryKind {
+  const normalized = question.toLowerCase();
+
+  if (
+    normalized.includes("between") ||
+    normalized.includes("time") ||
+    normalized.includes("when")
+  ) {
+    return "time_window";
+  }
+
+  if (
+    normalized.includes("connected") ||
+    normalized.includes("connects") ||
+    normalized.includes("entity")
+  ) {
+    return "entity_connections";
+  }
+
+  return "unresolved_leads";
 }

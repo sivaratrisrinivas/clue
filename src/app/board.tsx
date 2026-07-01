@@ -8,9 +8,20 @@ type BoardProps = {
   initialBoard: MysteryBoard;
 };
 
+type BoardQueryResult = {
+  answer: string;
+  groundedPinIds: string[];
+  queryKind: "time_window" | "entity_connections" | "unresolved_leads";
+};
+
 export function Board({ initialBoard }: BoardProps) {
   const [board, setBoard] = useState(initialBoard);
   const [text, setText] = useState("");
+  const [boardQueryQuestion, setBoardQueryQuestion] = useState("");
+  const [boardQueryResult, setBoardQueryResult] =
+    useState<BoardQueryResult | null>(null);
+  const [boardQueryError, setBoardQueryError] = useState<string | null>(null);
+  const [isBoardQueryPending, setIsBoardQueryPending] = useState(false);
   const [selectedStringId, setSelectedStringId] = useState<string | null>(null);
   const [manualStringStartPinId, setManualStringStartPinId] = useState<
     string | null
@@ -204,6 +215,41 @@ export function Board({ initialBoard }: BoardProps) {
     setBoard(refreshedBoard);
   }
 
+  async function askBoardQuery() {
+    const question = boardQueryQuestion.trim();
+    if (!question || isBoardQueryPending) {
+      return;
+    }
+
+    setIsBoardQueryPending(true);
+    setBoardQueryError(null);
+    setBoardQueryResult(null);
+
+    try {
+      const response = await fetch("/api/board-query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const body = (await response.json()) as
+        | BoardQueryResult
+        | { error?: string };
+
+      if (!response.ok) {
+        setBoardQueryError(
+          "error" in body && body.error
+            ? body.error
+            : "Board Query failed. Retry when memory is available.",
+        );
+        return;
+      }
+
+      setBoardQueryResult(body as BoardQueryResult);
+    } finally {
+      setIsBoardQueryPending(false);
+    }
+  }
+
   const selectedString =
     board.strings.find((string) => string.id === selectedStringId) ?? null;
 
@@ -240,6 +286,40 @@ export function Board({ initialBoard }: BoardProps) {
         <button type="submit" disabled={isPending || !text.trim()}>
           Add Pin
         </button>
+      </form>
+
+      <form
+        aria-label="Board Query"
+        className="board-query"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void askBoardQuery();
+        }}
+      >
+        <p>Board Query</p>
+        <textarea
+          aria-label="Board Query question"
+          name="board-query-question"
+          placeholder="Ask about a time window, entity, or unresolved lead..."
+          value={boardQueryQuestion}
+          onChange={(event) => setBoardQueryQuestion(event.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={isBoardQueryPending || !boardQueryQuestion.trim()}
+        >
+          Ask Board Query
+        </button>
+        {boardQueryResult ? (
+          <div aria-label="Board Query answer" className="board-query__answer">
+            <p>{formatBoardQueryKind(boardQueryResult.queryKind)}</p>
+            <p>{boardQueryResult.answer}</p>
+            <p>{`Grounded in ${boardQueryResult.groundedPinIds.length} Pins`}</p>
+          </div>
+        ) : null}
+        {boardQueryError ? (
+          <p className="board-query__error">{boardQueryError}</p>
+        ) : null}
       </form>
 
       {board.pins.length === 0 ? (
@@ -437,4 +517,12 @@ function formatClueType(clueType: BoardString["clueType"]): string {
     .join(" ");
 
   return label[0].toUpperCase() + label.slice(1);
+}
+
+function formatBoardQueryKind(queryKind: BoardQueryResult["queryKind"]): string {
+  return {
+    time_window: "Time window",
+    entity_connections: "Entity connections",
+    unresolved_leads: "Unresolved leads",
+  }[queryKind];
 }

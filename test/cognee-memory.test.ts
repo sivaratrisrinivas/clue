@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CogneeMemoryUnavailableError,
+  queryBoardWithCognee,
   rememberPinWithCognee,
 } from "../src/cognee-memory";
-import type { Pin } from "../src/board-state";
+import type { MysteryBoard, Pin } from "../src/board-state";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -245,6 +246,74 @@ describe("Cognee memory", () => {
       "Cognee memory returned 409",
     );
   });
+
+  it("asks Cognee a bounded Board Query against the current Mystery dataset", async () => {
+    vi.stubEnv("COGNEE_API_KEY", "test-cognee-key");
+    vi.stubEnv("COGNEE_BASE_URL", "https://tenant.cognee.example.test");
+    const fetch = vi.fn<(input: URL, init: RequestInit) => Promise<Response>>(
+      async () =>
+        Response.json([
+          {
+            text: JSON.stringify({
+              answer:
+                "Kim left around midnight and the receipt printed at 12:43 AM.",
+              groundedPinIds: [
+                "pin-kim-left",
+                "pin-receipt",
+                "pin-other-mystery",
+              ],
+              queryKind: "time_window",
+            }),
+          },
+        ]),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const answer = await queryBoardWithCognee(
+      "What happened between midnight and 1 AM?",
+      testBoard(),
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("/api/v1/recall", "https://tenant.cognee.example.test"),
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": "test-cognee-key",
+        },
+      }),
+    );
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string);
+    expect(body).toMatchObject({
+      datasets: ["clue-canonical-party-mystery"],
+      includeReferences: true,
+      searchType: "GRAPH_COMPLETION",
+      topK: 8,
+    });
+    expect(body.query).toContain(
+      "Supported Board Query kinds are time_window, entity_connections, and unresolved_leads.",
+    );
+    expect(body.query).toContain("Pin ID: pin-kim-left");
+    expect(body.query).toContain("Pin ID: pin-receipt");
+    expect(answer).toEqual({
+      answer: "Kim left around midnight and the receipt printed at 12:43 AM.",
+      groundedPinIds: ["pin-kim-left", "pin-receipt"],
+      queryKind: "time_window",
+    });
+  });
+
+  it("reports unavailable Cognee Board Query memory without inventing an answer", async () => {
+    vi.stubEnv("COGNEE_API_KEY", "test-cognee-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    );
+
+    await expect(
+      queryBoardWithCognee("What are the strongest unresolved leads?", testBoard()),
+    ).rejects.toThrow("Cognee Board Query returned 503");
+  });
 });
 
 function testPin(): Pin {
@@ -257,5 +326,24 @@ function testPin(): Pin {
     memoryStatus: "remembering",
     memoryError: null,
     deletedAt: null,
+  };
+}
+
+function testBoard(): MysteryBoard {
+  return {
+    mystery: {
+      id: "canonical-party-mystery",
+      title: "What happened at the party?",
+    },
+    pins: [
+      testPin(),
+      {
+        ...testPin(),
+        id: "pin-receipt",
+        text: "Lucky Star receipt printed at 12:43 AM",
+      },
+    ],
+    strings: [],
+    events: [],
   };
 }

@@ -265,6 +265,136 @@ describe("Mystery board page", () => {
     ).toBeVisible();
   });
 
+  it("lets an investigator ask a bounded Board Query from the board", async () => {
+    const board = {
+      mystery: {
+        id: "canonical-party-mystery",
+        title: CANONICAL_MYSTERY_TITLE,
+      },
+      pins: [
+        {
+          id: "pin-kim-left",
+          mysteryId: "canonical-party-mystery",
+          text: "Kim left around midnight",
+          x: 120,
+          y: 140,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+        {
+          id: "pin-receipt",
+          mysteryId: "canonical-party-mystery",
+          text: "Lucky Star receipt at 12:43 AM",
+          x: 420,
+          y: 260,
+          memoryStatus: "ready_for_connection" as const,
+          memoryError: null,
+          deletedAt: null,
+        },
+      ],
+      strings: [],
+      events: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            answer:
+              "Between midnight and 1 AM, Kim left and the Lucky Star receipt was printed at 12:43 AM.",
+            groundedPinIds: ["pin-kim-left", "pin-receipt"],
+            queryKind: "time_window",
+          }),
+        ),
+      ),
+    );
+
+    render(<Board initialBoard={board} />);
+
+    expect(screen.getByRole("form", { name: "Board Query" })).toBeVisible();
+    expect(screen.queryByText(/chat/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Board Query question"), {
+      target: { value: "What happened between midnight and 1 AM?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Board Query" }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/board-query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: "What happened between midnight and 1 AM?",
+        }),
+      });
+    });
+    expect(
+      await screen.findByText(
+        "Between midnight and 1 AM, Kim left and the Lucky Star receipt was printed at 12:43 AM.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("Time window")).toBeVisible();
+    expect(screen.getByText("Grounded in 2 Pins")).toBeVisible();
+  });
+
+  it("shows a recoverable Board Query failure without inventing an answer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json(
+            {
+              error:
+                "Cognee Board Query returned 503. Retry when the service is available.",
+              recoverable: true,
+            },
+            { status: 503 },
+          ),
+        ),
+      ),
+    );
+
+    render(
+      <Board
+        initialBoard={{
+          mystery: {
+            id: "canonical-party-mystery",
+            title: CANONICAL_MYSTERY_TITLE,
+          },
+          pins: [
+            {
+              id: "pin-kim-left",
+              mysteryId: "canonical-party-mystery",
+              text: "Kim left around midnight",
+              x: 120,
+              y: 140,
+              memoryStatus: "ready_for_connection" as const,
+              memoryError: null,
+              deletedAt: null,
+            },
+          ],
+          strings: [],
+          events: [],
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Board Query question"), {
+      target: { value: "What are the strongest unresolved leads?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Board Query" }));
+
+    expect(
+      await screen.findByText(
+        "Cognee Board Query returned 503. Retry when the service is available.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("region", { name: "Board Query answer" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("lets an investigator drag a Pin and keeps its String connected", async () => {
     const refreshedBoard = {
       mystery: {

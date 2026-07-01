@@ -8,7 +8,7 @@ The current app opens directly to one Mystery:
 
 ## What it does
 
-Clue gives an investigator a full-screen board for collecting evidence. The board loads the canonical Mystery, restores durable board state, and lets the investigator add text-only Pins. A Pin appears immediately, enters a visible remembering state, then either becomes ready for connection work or shows a retryable memory failure. When Cognee recalls a defensible relationship to another Pin, Clue renders a red solid String with an inspectable explanation. Investigators can also manually assert a relationship between two Pins as a blue dashed String. Pins can be dragged into useful spatial arrangements and deleted without leaving incoherent visible Strings behind.
+Clue gives an investigator a full-screen board for collecting evidence. The board loads the canonical Mystery, restores durable board state, and lets the investigator add text-only Pins. A Pin appears immediately, enters a visible remembering state, then either becomes ready for connection work or shows a retryable memory failure. When Cognee recalls a defensible relationship to another Pin, Clue renders a red solid String with an inspectable explanation. Investigators can also manually assert a relationship between two Pins as a blue dashed String. Pins can be dragged into useful spatial arrangements and deleted without leaving incoherent visible Strings behind. A bounded Board Query panel lets the investigator ask about the current Mystery's time windows, entity connections, and unresolved leads without turning the board into a general chat surface.
 
 The app owns the board state:
 
@@ -37,19 +37,20 @@ This repo is a Next.js app.
 - `src/app/api/pins/[pinId]/route.ts` persists Pin movement and deletion, then returns the refreshed board.
 - `src/app/api/pins/[pinId]/remember/route.ts` runs server-side remembering, persists defensible Cognee-discovered Strings, and preserves saved Pins on failure.
 - `src/app/api/strings/route.ts` persists investigator-created manual Strings, then returns the refreshed board.
+- `src/app/api/board-query/route.ts` answers bounded Board Queries through server-side Cognee recall for the current Mystery.
 - `src/board-state.ts` defines the board-state interface.
 - `src/board-state-source.ts` chooses the data source.
 - `src/neon-executor.ts` connects to Neon when `DATABASE_URL` is set.
 - `migrations/0001_board_state.sql` creates the four app-owned tables.
 - `migrations/0002_discovered_string_rendering.sql` adds discovered String rendering fields for existing databases.
 - `src/cognee-memory.ts` calls Cognee's server-side REST remember and recall endpoints when Cognee credentials are configured.
-- Tests cover the board loader, Pin creation, Pin dragging, Neon-backed movement/deletion persistence, coherent visible Strings after movement/deletion, memory failure behavior, Cognee recall filtering, discovered String rendering, manual String creation/rendering/persistence, schema boundary, browser boundary, and Cognee server-side boundary.
+- Tests cover the board loader, Pin creation, Pin dragging, Neon-backed movement/deletion persistence, coherent visible Strings after movement/deletion, memory failure behavior, Cognee recall filtering, discovered String rendering, manual String creation/rendering/persistence, bounded Board Queries, schema boundary, browser boundary, and Cognee server-side boundary.
 
 Without `DATABASE_URL`, the app uses an in-memory board store so the UI can still run locally. With `DATABASE_URL`, it uses Neon for board state.
 
 ## MVP issue status
 
-Issues #3, #4, #5, and #6 are implemented for the app-owned flow:
+Issues #3, #4, #5, #6, and #7 are implemented for the app-owned flow:
 
 - Text-only Pins can be added from the board.
 - Pins are saved immediately before memory work runs.
@@ -70,6 +71,10 @@ Issues #3, #4, #5, and #6 are implemented for the app-owned flow:
 - Pin movement persists through the board-state store and Neon-backed route, so refreshed boards restore updated positions.
 - Mistaken Pins can be deleted from the visible board.
 - Deleting a Pin keeps the board coherent by hiding Strings whose endpoints are no longer visible.
+- Investigators can ask bounded Board Queries from the board surface.
+- Board Query answers are grounded in the current Mystery's visible Pins and server-side Cognee memory.
+- Board Query supports time-window, entity-connection, and unresolved-lead questions.
+- Board Query failures produce an honest retryable state instead of fabricated answers.
 - Pin editing remains out of scope for the MVP.
 
 ## Run it locally
